@@ -51,7 +51,7 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
   const [parentName, setParentName] = useState('');
   const [parentPhone, setParentPhone] = useState('+91 ');
   const [classId, setClassId] = useState(classes[0]?.id || 'batch-a');
-  const [photoUrl, setPhotoUrl] = useState('/src/assets/images/avatar_student_male_1794118079992.jpg');
+  const [photoUrl, setPhotoUrl] = useState('/assets/images/avatar_student_male_1794118079992.jpg');
   const [photoPublicId, setPhotoPublicId] = useState<string | undefined>(undefined);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 

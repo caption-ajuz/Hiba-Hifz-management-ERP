@@ -33,6 +33,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const [forgotEmail, setForgotEmail] = useState<string>('');
   const [forgotSubmitted, setForgotSubmitted] = useState<boolean>(false);
 
+  // Robust image fallback states
+  const [bannerError, setBannerError] = useState<boolean>(false);
+  const [logoError, setLogoError] = useState<boolean>(false);
+
   // Quick select helper to auto-fill credentials for demo
   const handleQuickFill = (roleKey: 'admin' | 'teacher' | 'student' | 'parent') => {
     const user = MOCK_USERS[roleKey];
@@ -113,15 +117,26 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
       {/* Container matching uploaded reference screenshot */}
       <div className="w-full sm:max-w-md bg-white sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col min-h-screen sm:min-h-0 border-0 sm:border border-slate-200/80">
         {/* Top Campus Architecture Banner */}
-        <div className="relative h-60 sm:h-64 w-full overflow-hidden bg-slate-900 shrink-0">
-          <img
-            src={INSTITUTION_INFO.campusBannerUrl}
-            alt="Markazul Hidayathil Islamiyya Campus Building"
-            className="w-full h-full object-cover object-center"
-            referrerPolicy="no-referrer"
-          />
+        <div className="relative h-60 sm:h-64 w-full overflow-hidden bg-gradient-to-br from-emerald-950 via-slate-900 to-teal-950 shrink-0">
+          {!bannerError ? (
+            <img
+              src={INSTITUTION_INFO.campusBannerUrl}
+              alt="Markazul Hidayathil Islamiyya Campus Building"
+              className="w-full h-full object-cover object-center"
+              referrerPolicy="no-referrer"
+              onError={() => setBannerError(true)}
+            />
+          ) : (
+            <div className="w-full h-full flex flex-col items-center justify-center relative p-6 text-center">
+              <div className="w-14 h-14 rounded-2xl bg-emerald-500/15 border border-emerald-400/25 flex items-center justify-center text-emerald-300 mb-2 shadow-inner">
+                <Sparkles className="w-7 h-7" />
+              </div>
+              <div className="text-white font-bold text-sm tracking-wide">Markazul Hidayathil Islamiyya</div>
+              <div className="text-emerald-300/80 text-xs font-arabic mt-1">مركز الهداية الإسلامية · حرم تحفيظ القرآن</div>
+            </div>
+          )}
           {/* Subtle gradient overlay */}
-          <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-black/50"></div>
+          <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-black/50 pointer-events-none"></div>
 
           {/* Top subtle badge */}
           <div className="absolute top-4 left-4 z-10 flex items-center gap-2 bg-black/40 backdrop-blur-md px-3 py-1 rounded-full text-white text-xs border border-white/20">
@@ -138,13 +153,21 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           <div className="space-y-4">
             {/* Institution Emblem */}
             <div className="flex flex-col items-center text-center -mt-8">
-              <div className="w-20 h-20 rounded-2xl bg-white p-2 border-2 border-slate-100 shadow-lg flex items-center justify-center">
-                <img
-                  src={INSTITUTION_INFO.logoUrl}
-                  alt={INSTITUTION_INFO.name}
-                  className="w-full h-full object-contain"
-                  referrerPolicy="no-referrer"
-                />
+              <div className="w-20 h-20 rounded-2xl bg-white p-2 border-2 border-slate-100 shadow-lg flex items-center justify-center overflow-hidden">
+                {!logoError ? (
+                  <img
+                    src={INSTITUTION_INFO.logoUrl}
+                    alt={INSTITUTION_INFO.name}
+                    className="w-full h-full object-contain"
+                    referrerPolicy="no-referrer"
+                    onError={() => setLogoError(true)}
+                  />
+                ) : (
+                  <div className="w-full h-full rounded-xl bg-gradient-to-br from-emerald-800 to-teal-950 flex flex-col items-center justify-center text-white shadow-inner p-1">
+                    <span className="font-arabic text-base font-bold text-amber-300 leading-tight">م</span>
+                    <span className="text-[9px] font-black tracking-widest text-emerald-100">HYBA</span>
+                  </div>
+                )}
               </div>
 
               {/* Institution Title */}

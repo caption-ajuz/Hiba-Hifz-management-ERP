@@ -92,7 +92,24 @@ async function startServer() {
   } else {
     // Production mode: Serve built static assets
     const distPath = path.resolve(__dirname, 'dist');
+    const publicPath = path.resolve(__dirname, 'public');
+
+    // Robust static asset handlers supporting /assets, /public/assets, and legacy /src/assets
+    app.use('/assets', express.static(path.resolve(distPath, 'assets')));
+    app.use('/assets', express.static(path.resolve(publicPath, 'assets')));
+    app.use('/public/assets', express.static(path.resolve(distPath, 'assets')));
+    app.use('/public/assets', express.static(path.resolve(publicPath, 'assets')));
+    app.use('/src/assets/images', express.static(path.resolve(publicPath, 'assets', 'images')));
+    app.use('/src/assets', express.static(path.resolve(publicPath, 'assets')));
+
+    // General static middleware for dist (HTML, scripts, stylesheets)
     app.use(express.static(distPath));
+
+    // Never return HTML index for missing image or media extensions (prevents broken image box)
+    app.get(/\.(jpg|jpeg|png|gif|svg|webp|ico|css|js|map)$/, (_req, res) => {
+      res.status(404).end();
+    });
+
     app.get('*', (_req, res) => {
       res.sendFile(path.resolve(distPath, 'index.html'));
     });

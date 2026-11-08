@@ -44,12 +44,15 @@ export const StudentIdCardModal: React.FC<StudentIdCardModalProps> = ({
             {/* Top Green Curved Header */}
             <div className="bg-gradient-to-br from-emerald-800 to-teal-900 text-white p-4 text-center relative pb-10">
               <div className="flex items-center justify-center gap-2 mb-1">
-                <div className="w-9 h-9 rounded-lg bg-white p-1 flex items-center justify-center shadow-xs">
+                <div className="w-9 h-9 rounded-lg bg-white p-1 flex items-center justify-center shadow-xs overflow-hidden">
                   <img
                     src={INSTITUTION_INFO.logoUrl}
                     alt="Emblem"
                     className="w-full h-full object-contain"
                     referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
                   />
                 </div>
                 <div className="text-left">

@@ -164,12 +164,15 @@ export const Navbar: React.FC<NavbarProps> = ({
                 onClick={() => onTabChange('dashboard')}
                 className="flex items-center gap-2 text-left cursor-pointer group"
               >
-                <div className="w-9 h-9 rounded-xl bg-white border border-slate-200 p-1 flex items-center justify-center shadow-xs">
+                <div className="w-9 h-9 rounded-xl bg-white border border-slate-200 p-1 flex items-center justify-center shadow-xs overflow-hidden">
                   <img
                     src={INSTITUTION_INFO.logoUrl}
                     alt={INSTITUTION_INFO.name}
                     className="w-full h-full object-contain"
                     referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
                   />
                 </div>
                 <div>

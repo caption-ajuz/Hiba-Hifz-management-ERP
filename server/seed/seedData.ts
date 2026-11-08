@@ -41,6 +41,17 @@ export async function seedDatabaseIfEmpty() {
         currentAcademicYear: '2026 - 2027',
       });
       console.log('[Seed] Institution settings created.');
+    } else {
+      // Update any existing record to use proper production asset URLs
+      await InstitutionSetting.updateMany(
+        { key: 'HYBA_MAIN' },
+        {
+          $set: {
+            logoUrl: INSTITUTION_INFO.logoUrl,
+            campusBannerUrl: INSTITUTION_INFO.campusBannerUrl,
+          },
+        }
+      );
     }
 
     // 2. Academic Year
