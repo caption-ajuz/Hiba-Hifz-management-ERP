@@ -20,6 +20,7 @@ import {
   Student,
   Teacher,
   ClassBatch,
+  Campus,
   HifzRecord,
   AttendanceSession,
   TeacherEvaluation,
@@ -40,6 +41,7 @@ import { HifzModule } from './components/HifzModule';
 import { StudentManagement } from './components/StudentManagement';
 import { TeacherManagement } from './components/TeacherManagement';
 import { ClassManagement } from './components/ClassManagement';
+import { CampusManagement } from './components/CampusManagement';
 import { ReportsModule } from './components/ReportsModule';
 
 // Modals
@@ -72,6 +74,7 @@ export default function App() {
   const [students, setStudents] = useState<Student[]>(MOCK_STUDENTS);
   const [teachers, setTeachers] = useState<Teacher[]>(MOCK_TEACHERS);
   const [classes, setClasses] = useState<ClassBatch[]>(MOCK_CLASSES);
+  const [campuses, setCampuses] = useState<Campus[]>([]);
   const [hifzRecords, setHifzRecords] = useState<HifzRecord[]>(INITIAL_HIFZ_RECORDS);
   const [attendanceSession, setAttendanceSession] = useState<AttendanceSession>(INITIAL_ATTENDANCE_SESSION);
   const [evaluations, setEvaluations] = useState<TeacherEvaluation[]>(MOCK_EVALUATIONS);
@@ -91,7 +94,7 @@ export default function App() {
 
     async function fetchAppData() {
       try {
-        const [loadedStudents, loadedTeachers, loadedClasses, loadedHifz, loadedEvals, loadedAnnouncements] =
+        const [loadedStudents, loadedTeachers, loadedClasses, loadedHifz, loadedEvals, loadedAnnouncements, loadedCampuses] =
           await Promise.all([
             api.getStudents(),
             api.getTeachers(),
@@ -99,6 +102,7 @@ export default function App() {
             api.getHifzRecords(),
             api.getEvaluations(),
             api.getAnnouncements(),
+            api.getCampuses(),
           ]);
 
         if (isMounted) {
@@ -108,6 +112,7 @@ export default function App() {
           if (loadedHifz && loadedHifz.length > 0) setHifzRecords(loadedHifz);
           if (loadedEvals && loadedEvals.length > 0) setEvaluations(loadedEvals);
           if (loadedAnnouncements && loadedAnnouncements.length > 0) setAnnouncements(loadedAnnouncements);
+          if (loadedCampuses && loadedCampuses.length > 0) setCampuses(loadedCampuses);
         }
       } catch (err) {
         console.warn('[HYBA Frontend] Fallback active:', err);
@@ -240,6 +245,10 @@ export default function App() {
     }
   };
 
+  const handleStudentUpdated = (updated: Student) => {
+    setStudents((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+  };
+
   const handleCompleteEvaluation = async (evalId: string, ratings: any) => {
     setEvaluations((prev) =>
       prev.map((e) =>
@@ -308,6 +317,7 @@ export default function App() {
               onOpenTimetable={() => setIsTimetableOpen(true)}
               onOpenFeedback={() => setIsFeedbackOpen(true)}
               onNavigate={setCurrentTab}
+              onStudentUpdated={handleStudentUpdated}
             />
           );
         } else {
@@ -321,6 +331,19 @@ export default function App() {
             />
           );
         }
+
+      case 'campuses':
+        if (currentUser.role !== 'SUPER_ADMIN') {
+          return null;
+        }
+        return (
+          <CampusManagement
+            currentUser={currentUser}
+            students={students}
+            teachers={teachers}
+            classes={classes}
+          />
+        );
 
       case 'attendance':
         return (
@@ -339,11 +362,18 @@ export default function App() {
             records={hifzRecords}
             students={students}
             currentUser={currentUser}
-            onOpenAddModal={() => setIsAddHifzOpen(true)}
+            onOpenAddModal={() => {
+              if (currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'USTHAD') {
+                setIsAddHifzOpen(true);
+              }
+            }}
           />
         );
 
       case 'students':
+        if (currentUser.role === 'PARENT' || currentUser.role === 'STUDENT') {
+          return null;
+        }
         return (
           <StudentManagement
             students={students}
@@ -352,19 +382,35 @@ export default function App() {
             currentUser={currentUser}
             onOpenIdCard={handleOpenIdCard}
             onAddStudent={handleAddStudent}
+            onRefreshStudents={async () => {
+              const latest = await api.getStudents();
+              if (latest && latest.length > 0) setStudents(latest);
+            }}
           />
         );
 
       case 'teachers':
+        if (currentUser.role !== 'SUPER_ADMIN') {
+          return null;
+        }
         return (
           <TeacherManagement
             teachers={teachers}
             classes={classes}
             currentUser={currentUser}
+            campuses={campuses}
+            onAddTeacher={(newT) => setTeachers((prev) => [...prev, newT])}
+            onRefreshTeachers={async () => {
+              const latest = await api.getTeachers();
+              if (latest && latest.length > 0) setTeachers(latest);
+            }}
           />
         );
 
       case 'classes':
+        if (currentUser.role === 'PARENT' || currentUser.role === 'STUDENT') {
+          return null;
+        }
         return (
           <ClassManagement
             classes={classes}
@@ -397,7 +443,11 @@ export default function App() {
         onTabChange={setCurrentTab}
         onOpenRoleSwitcher={() => setIsRoleSwitcherOpen(true)}
         onOpenAttendance={() => setCurrentTab('attendance')}
-        onOpenAddHifz={() => setIsAddHifzOpen(true)}
+        onOpenAddHifz={() => {
+          if (currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'USTHAD') {
+            setIsAddHifzOpen(true);
+          }
+        }}
         onOpenIdCard={() => handleOpenIdCard()}
         onOpenTimetable={() => setIsTimetableOpen(true)}
         onOpenFeedback={() => setIsFeedbackOpen(true)}

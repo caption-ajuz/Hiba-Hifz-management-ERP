@@ -109,6 +109,34 @@ export async function seedDatabaseIfEmpty() {
       for (const t of MOCK_TEACHERS) {
         await Teacher.create(t);
       }
+    } else {
+      // Ensure faculty phone number and photo are synced
+      await Teacher.updateMany(
+        { $or: [{ teacherId: 'FAC-012' }, { id: 'usr_teacher_01' }, { fullName: /Ajash/i }] },
+        {
+          $set: {
+            phone: '+91 99610 65284',
+            photo: '/assets/images/avatar_usthad_male_1794118062835.jpg',
+          },
+        }
+      );
+      await User.updateMany(
+        { $or: [{ referenceId: 'FAC-012' }, { id: 'usr_teacher_01' }, { username: 'ajash' }] },
+        {
+          $set: {
+            phone: '+91 99610 65284',
+            avatar: '/assets/images/avatar_usthad_male_1794118062835.jpg',
+          },
+        }
+      );
+      await Student.updateMany(
+        { $or: [{ admissionNumber: '24812' }, { id: 'std_05' }, { fullName: /Ajash/i }] },
+        {
+          $set: {
+            photo: '/assets/images/avatar_student_male_1794118079992.jpg',
+          },
+        }
+      );
     }
 
     // 6. Students

@@ -25,6 +25,7 @@ import healthRoutes from './server/routes/healthRoutes';
 import announcementRoutes from './server/routes/announcementRoutes';
 import evaluationRoutes from './server/routes/evaluationRoutes';
 import envDownloadRoutes from './server/routes/envDownloadRoutes';
+import campusRoutes from './server/routes/campusRoutes';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -41,8 +42,12 @@ async function startServer() {
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+  // Static files for local uploads (accessible in both dev and production)
+  app.use('/uploads', express.static(path.resolve(__dirname, 'public/uploads')));
+
   // API Routes
   app.use('/api/auth', authRoutes);
+  app.use('/api/campuses', campusRoutes);
   app.use('/api/students', studentRoutes);
   app.use('/api/teachers', teacherRoutes);
   app.use('/api/classes', classRoutes);

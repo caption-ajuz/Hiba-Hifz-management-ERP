@@ -20,11 +20,20 @@ export interface UserProfile {
 export interface Campus {
   id: string;
   name: string;
-  arabicName: string;
-  location: string;
+  code: string;
+  arabicName?: string;
+  location?: string;
   address: string;
-  established: string;
   phone: string;
+  email: string;
+  logo?: string;
+  bannerUrl?: string;
+  status: 'Active' | 'Inactive';
+  establishedYear?: string;
+  principalName?: string;
+  studentCount?: number;
+  teacherCount?: number;
+  classCount?: number;
 }
 
 export interface ClassBatch {
@@ -46,6 +55,8 @@ export interface Student {
   fullName: string;
   arabicName: string;
   photo: string;
+  photoPublicId?: string;
+  phone?: string;
   dateOfBirth: string;
   gender: 'Male' | 'Female';
   parentName: string;

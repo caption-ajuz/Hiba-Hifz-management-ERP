@@ -178,7 +178,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
         </div>
         <div className="flex items-center gap-3">
           <a
-            href="tel:+919447124812"
+            href="tel:+919961065284"
             className="px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold rounded-xl border border-emerald-200 transition-colors flex items-center gap-1.5"
           >
             <Phone className="w-3.5 h-3.5" />

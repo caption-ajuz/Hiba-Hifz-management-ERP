@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState, useRef } from 'react';
 import { INSTITUTION_INFO } from '../data/mockData';
 import { Student, HifzRecord, UserProfile, TeacherEvaluation } from '../types';
 import { JUZ_NAMES } from '../data/quranData';
+import { api } from '../services/api';
 import {
   BookOpen,
   CalendarCheck,
@@ -14,6 +15,10 @@ import {
   CheckCircle2,
   ChevronRight,
   TrendingUp,
+  Camera,
+  Loader2,
+  Edit2,
+  Phone,
 } from 'lucide-react';
 
 interface StudentDashboardProps {
@@ -25,6 +30,7 @@ interface StudentDashboardProps {
   onOpenTimetable: () => void;
   onOpenFeedback: () => void;
   onNavigate: (tab: string) => void;
+  onStudentUpdated?: (student: Student) => void;
 }
 
 export const StudentDashboard: React.FC<StudentDashboardProps> = ({
@@ -36,7 +42,42 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   onOpenTimetable,
   onOpenFeedback,
   onNavigate,
+  onStudentUpdated,
 }) => {
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [photoMessage, setPhotoMessage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Photo must be smaller than 5MB.');
+      return;
+    }
+
+    setIsUploadingPhoto(true);
+    setPhotoMessage(null);
+    try {
+      const uploadRes = await api.uploadMedia(file, 'students', student.photoPublicId);
+      const updated = await api.updateStudent(student.id, {
+        photo: uploadRes.secure_url,
+        photoPublicId: uploadRes.public_id,
+      });
+      if (onStudentUpdated) {
+        onStudentUpdated(updated);
+      }
+      setPhotoMessage('Profile photo updated successfully!');
+      setTimeout(() => setPhotoMessage(null), 4000);
+    } catch (err: any) {
+      console.error('Photo upload failed:', err);
+      alert('Failed to upload photo. Please try another image.');
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
+
   const studentRecords = records.filter((r) => r.studentId === student.id);
   const latestSabq = studentRecords.find((r) => r.recordType === 'SABQ');
   const latestMurajath = studentRecords.find((r) => r.recordType === 'MURAJATH');
@@ -48,19 +89,47 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6 pb-20">
+      {/* Photo update status toast */}
+      {photoMessage && (
+        <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-800 text-xs font-bold rounded-xl flex items-center justify-between animate-fade-in shadow-xs">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            <span>{photoMessage}</span>
+          </div>
+          <button onClick={() => setPhotoMessage(null)} className="text-emerald-700 hover:text-emerald-950">×</button>
+        </div>
+      )}
+
       {/* Student Banner */}
       <div className="bg-gradient-to-r from-emerald-950 via-teal-950 to-emerald-900 text-white rounded-2xl sm:rounded-3xl p-4 sm:p-7 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3.5">
-          <div className="relative shrink-0">
+          <div className="relative shrink-0 group">
             <img
               src={student.photo}
               alt={student.fullName}
-              className="w-14 h-14 sm:w-18 sm:h-18 rounded-full object-cover border-2 sm:border-4 border-white/80 shadow-md"
+              className="w-14 h-14 sm:w-18 sm:h-18 rounded-full object-cover border-2 sm:border-4 border-white/80 shadow-md group-hover:opacity-85 transition-opacity"
               referrerPolicy="no-referrer"
             />
-            <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 border-2 border-white flex items-center justify-center text-white text-[9px]">
-              <CheckCircle2 className="w-3 h-3 stroke-[3]" />
-            </div>
+            {/* Camera upload button */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handlePhotoUpload}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploadingPhoto}
+              title="Upload new profile photo"
+              className="absolute bottom-0 right-0 w-6 h-6 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white border-2 border-white flex items-center justify-center transition-all cursor-pointer shadow-xs disabled:opacity-50"
+            >
+              {isUploadingPhoto ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Camera className="w-3 h-3" />
+              )}
+            </button>
           </div>
 
           <div>

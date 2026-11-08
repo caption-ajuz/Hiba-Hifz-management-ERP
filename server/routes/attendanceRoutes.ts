@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { AttendanceSessionModel, AttendanceItem } from '../models/Attendance';
 import { Student } from '../models/Student';
 import { emitAttendanceUpdated } from '../socket';
@@ -20,17 +20,31 @@ const saveSessionSchema = z.object({
 });
 
 // GET /api/attendance/session - Retrieve attendance session by class, date, and hour
-router.get('/session', async (req: Request, res: Response) => {
+router.get('/session', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const { classId, date, sessionHour } = req.query;
     if (!classId || !date) {
       return res.status(400).json({ success: false, error: 'classId and date are required parameters' });
     }
 
+    const user = req.user!;
+    const strClassId = String(classId);
+
+    // RBAC validation for session retrieval
+    if (user.role === 'USTHAD') {
+      const allowed = user.assignedClassIds && user.assignedClassIds.includes(strClassId);
+      if (!allowed) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access forbidden: You can only view attendance sessions for your assigned classes.',
+        });
+      }
+    }
+
     const hour = parseInt(sessionHour as string) || 1;
 
     const session = await AttendanceSessionModel.findOne({
-      classId: String(classId),
+      classId: strClassId,
       date: String(date),
       sessionHour: hour,
     }).lean();
@@ -41,9 +55,10 @@ router.get('/session', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/attendance/session - Save or update attendance session
+// POST /api/attendance/session - Save or update attendance session (SUPER_ADMIN or USTHAD only)
 router.post('/session', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async (req: AuthRequest, res: Response) => {
   try {
+    const user = req.user!;
     const parse = saveSessionSchema.safeParse(req.body);
     if (!parse.success) {
       return res.status(400).json({
@@ -53,6 +68,18 @@ router.post('/session', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async 
     }
 
     const { classId, date, sessionHour, sessionName, usthadId, topic, records, academicYear } = parse.data;
+
+    // Strict Scope Validation: Usthad can only mark attendance for their assigned classes!
+    if (user.role === 'USTHAD') {
+      const isAssigned = user.assignedClassIds && user.assignedClassIds.includes(classId);
+      if (!isAssigned) {
+        return res.status(403).json({
+          success: false,
+          error: `Access forbidden: You are not assigned to class batch ${classId}.`,
+        });
+      }
+    }
+
     const sessionId = req.body.id || `att_${classId}_${date}_h${sessionHour}`;
 
     // 1. Upsert AttendanceSessionModel
@@ -64,7 +91,7 @@ router.post('/session', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async 
         date,
         sessionHour,
         sessionName,
-        usthadId,
+        usthadId: user.role === 'USTHAD' ? user.id : usthadId,
         topic,
         records,
         academicYear,
@@ -73,7 +100,7 @@ router.post('/session', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async 
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
 
-    // 2. Atomic Upsert for individual student AttendanceItem records (Preventing duplicates with unique compound index)
+    // 2. Atomic Upsert for individual student AttendanceItem records
     const bulkOps = Object.entries(records).map(([studentId, status]) => ({
       updateOne: {
         filter: { studentId, date, sessionHour },
@@ -84,7 +111,7 @@ router.post('/session', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async 
             date,
             sessionHour,
             status,
-            markedByUsthadId: usthadId,
+            markedByUsthadId: user.id,
             academicYear,
           },
         },
@@ -96,7 +123,7 @@ router.post('/session', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async 
       await AttendanceItem.bulkWrite(bulkOps);
     }
 
-    // 3. Recalculate attendance rates for students in background
+    // 3. Recalculate attendance rates for affected students
     setTimeout(async () => {
       try {
         const studentIds = Object.keys(records);
@@ -116,16 +143,16 @@ router.post('/session', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async 
       }
     }, 100);
 
-    // 4. Emit real-time WebSocket event after successful database persistence!
+    // 4. Emit real-time WebSocket event
     emitAttendanceUpdated({
       classId,
       date,
       sessionHour,
       records,
-      updatedBy: req.user?.fullName || 'Usthad',
+      updatedBy: user.fullName || 'Usthad',
     });
 
-    await logAuditEvent('ATTENDANCE_SUBMIT', req.user, 'AttendanceSession', sessionId, {
+    await logAuditEvent('ATTENDANCE_SUBMIT', user, 'AttendanceSession', sessionId, {
       classId,
       date,
       sessionHour,
@@ -134,7 +161,7 @@ router.post('/session', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async 
 
     return res.json({
       success: true,
-      message: 'Attendance recorded and synchronized successfully in MongoDB Atlas.',
+      message: 'Attendance recorded and synchronized successfully.',
       data: sessionDoc,
     });
   } catch (err: any) {
@@ -143,13 +170,48 @@ router.post('/session', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async 
   }
 });
 
-// GET /api/attendance/student/:id - Student attendance history
-router.get('/student/:id', async (req: Request, res: Response) => {
+// GET /api/attendance/student/:id - Student attendance history with strict RBAC access checks
+router.get('/student/:id', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
+    const user = req.user!;
+
+    // RBAC ownership check
+    if (user.role === 'STUDENT') {
+      if (user.studentId !== id) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access forbidden: Students may only view their own attendance history.',
+        });
+      }
+    } else if (user.role === 'PARENT') {
+      const isLinked = user.linkedStudentIds && user.linkedStudentIds.includes(id);
+      if (!isLinked) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access forbidden: Parents may only view attendance history of their linked children.',
+        });
+      }
+    } else if (user.role === 'USTHAD') {
+      const student = await Student.findOne({ id }).lean();
+      if (!student) {
+        return res.status(404).json({ success: false, error: 'Student not found.' });
+      }
+      const isAssigned =
+        (user.assignedClassIds && user.assignedClassIds.includes(student.classId)) ||
+        student.assignedTeacherId === user.id ||
+        student.assignedTeacherId === user.referenceId;
+      if (!isAssigned) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access forbidden: Usthad can only view attendance of assigned students.',
+        });
+      }
+    }
+
     const records = await AttendanceItem.find({ studentId: id })
       .sort({ date: -1, sessionHour: -1 })
-      .limit(60)
+      .limit(90)
       .lean();
 
     return res.json({ success: true, data: records });

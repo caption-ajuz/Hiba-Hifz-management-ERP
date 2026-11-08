@@ -6,4 +6,5 @@ export * from './ClassBatch';
 export * from './Attendance';
 export * from './HifzRecord';
 export * from './Announcement';
+export * from './Campus';
 export * from './InstitutionModels';

@@ -40,7 +40,31 @@ export const AttendanceModule: React.FC<AttendanceModuleProps> = ({
   initialSession,
   onSaveSession,
 }) => {
-  const [selectedClassId, setSelectedClassId] = useState<string>(initialSession.classId || 'batch-a');
+  const isReadOnly = currentUser.role === 'PARENT' || currentUser.role === 'STUDENT';
+  const isUsthad = currentUser.role === 'USTHAD';
+
+  // Allowed classes based on role
+  const allowedClasses = React.useMemo(() => {
+    if (isUsthad) {
+      return classes.filter((c) => currentUser.assignedClassIds?.includes(c.id));
+    }
+    if (currentUser.role === 'STUDENT') {
+      const selfStudent = students.find((s) => s.id === currentUser.studentId);
+      return selfStudent ? classes.filter((c) => c.id === selfStudent.classId) : classes;
+    }
+    if (currentUser.role === 'PARENT') {
+      const linked = students.filter((s) => currentUser.linkedStudentIds?.includes(s.id));
+      const childClassIds = linked.map((s) => s.classId);
+      const matched = classes.filter((c) => childClassIds.includes(c.id));
+      return matched.length > 0 ? matched : classes;
+    }
+    return classes;
+  }, [currentUser, classes, students, isUsthad]);
+
+  const [selectedClassId, setSelectedClassId] = useState<string>(() => {
+    if (isUsthad && allowedClasses.length > 0) return allowedClasses[0].id;
+    return initialSession.classId || classes[0]?.id || 'batch-a';
+  });
   const [selectedDate, setSelectedDate] = useState<string>(initialSession.date || '2026-11-07');
   const [selectedHour, setSelectedHour] = useState<number>(initialSession.sessionHour || 1);
   const [sessionTopic, setSessionTopic] = useState<string>(initialSession.topic || 'Surah Al-Anbiya & Juz 17 Murajath');
@@ -99,6 +123,7 @@ export const AttendanceModule: React.FC<AttendanceModuleProps> = ({
 
   // Cycle status on student click: PRESENT -> ABSENT -> LATE -> NOT_MARKED -> PRESENT
   const cycleStatus = (studentId: string) => {
+    if (isReadOnly) return;
     const current = records[studentId];
     let next: AttendanceStatus;
     if (current === 'PRESENT') next = 'ABSENT';
@@ -113,6 +138,7 @@ export const AttendanceModule: React.FC<AttendanceModuleProps> = ({
   };
 
   const setDirectStatus = (studentId: string, status: AttendanceStatus) => {
+    if (isReadOnly) return;
     setRecords((prev) => ({
       ...prev,
       [studentId]: status,
@@ -211,7 +237,7 @@ export const AttendanceModule: React.FC<AttendanceModuleProps> = ({
                 onChange={(e) => setSelectedClassId(e.target.value)}
                 className="w-full sm:w-auto bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-800 focus:outline-hidden pr-7 cursor-pointer"
               >
-                {classes.map((cls) => (
+                {allowedClasses.map((cls) => (
                   <option key={cls.id} value={cls.id}>
                     {cls.name} ({cls.totalStudents})
                   </option>
@@ -270,22 +296,28 @@ export const AttendanceModule: React.FC<AttendanceModuleProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 self-start sm:self-auto">
-          <button
-            onClick={handleMarkAllPresent}
-            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-2xs transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
-          >
-            <CheckCheck className="w-3.5 h-3.5" />
-            <span>Mark All Present</span>
-          </button>
-          <button
-            onClick={handleResetAttendance}
-            className="px-2.5 py-1.5 bg-white/10 hover:bg-white/20 text-emerald-100 text-xs font-semibold rounded-xl transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Reset</span>
-          </button>
-        </div>
+        {!isReadOnly ? (
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            <button
+              onClick={handleMarkAllPresent}
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-2xs transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
+            >
+              <CheckCheck className="w-3.5 h-3.5" />
+              <span>Mark All Present</span>
+            </button>
+            <button
+              onClick={handleResetAttendance}
+              className="px-2.5 py-1.5 bg-white/10 hover:bg-white/20 text-emerald-100 text-xs font-semibold rounded-xl transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Reset</span>
+            </button>
+          </div>
+        ) : (
+          <div className="bg-white/10 text-emerald-100 px-3 py-1.5 rounded-xl text-xs font-semibold self-start sm:self-auto">
+            Read-Only Attendance Ledger
+          </div>
+        )}
       </div>
 
       {/* High-Priority Compact Summary Counters Strip (Fixed huge boxes on mobile!) */}
@@ -413,9 +445,11 @@ export const AttendanceModule: React.FC<AttendanceModuleProps> = ({
                 <button
                   type="button"
                   key={student.id}
-                  onClick={() => cycleStatus(student.id)}
+                  onClick={isReadOnly ? undefined : () => cycleStatus(student.id)}
                   onMouseEnter={() => setActiveStudentHover(student)}
-                  className={`relative h-13 sm:h-16 rounded-xl border-2 flex flex-col items-center justify-center cursor-pointer transition-all active:scale-95 select-none ${boxStyle}`}
+                  className={`relative h-13 sm:h-16 rounded-xl border-2 flex flex-col items-center justify-center select-none ${
+                    isReadOnly ? 'cursor-default' : 'cursor-pointer active:scale-95'
+                  } transition-all ${boxStyle}`}
                 >
                   {/* Roll number */}
                   <span className="text-base sm:text-lg font-black font-mono tracking-tight leading-none">
@@ -453,26 +487,28 @@ export const AttendanceModule: React.FC<AttendanceModuleProps> = ({
               </div>
 
               {/* Direct status buttons */}
-              <div className="flex items-center gap-1.5 self-end sm:self-auto">
-                <button
-                  onClick={() => setDirectStatus(activeStudentHover.id, 'PRESENT')}
-                  className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-emerald-600 text-white cursor-pointer"
-                >
-                  Present
-                </button>
-                <button
-                  onClick={() => setDirectStatus(activeStudentHover.id, 'ABSENT')}
-                  className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-rose-600 text-white cursor-pointer"
-                >
-                  Absent
-                </button>
-                <button
-                  onClick={() => setDirectStatus(activeStudentHover.id, 'LATE')}
-                  className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-amber-600 text-white cursor-pointer"
-                >
-                  Late
-                </button>
-              </div>
+              {!isReadOnly && (
+                <div className="flex items-center gap-1.5 self-end sm:self-auto">
+                  <button
+                    onClick={() => setDirectStatus(activeStudentHover.id, 'PRESENT')}
+                    className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-emerald-600 text-white cursor-pointer"
+                  >
+                    Present
+                  </button>
+                  <button
+                    onClick={() => setDirectStatus(activeStudentHover.id, 'ABSENT')}
+                    className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-rose-600 text-white cursor-pointer"
+                  >
+                    Absent
+                  </button>
+                  <button
+                    onClick={() => setDirectStatus(activeStudentHover.id, 'LATE')}
+                    className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-amber-600 text-white cursor-pointer"
+                  >
+                    Late
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -581,13 +617,19 @@ export const AttendanceModule: React.FC<AttendanceModuleProps> = ({
             <span>Attendance will be recorded against date {selectedDate} and session hour {selectedHour}.</span>
           </div>
 
-          <button
-            onClick={handleSubmit}
-            className="w-full sm:w-auto px-6 py-3 bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white font-bold text-xs sm:text-sm rounded-xl shadow-md transition-colors flex items-center justify-center gap-2 cursor-pointer"
-          >
-            <Save className="w-4 h-4" />
-            <span>Submit Attendance</span>
-          </button>
+          {!isReadOnly ? (
+            <button
+              onClick={handleSubmit}
+              className="w-full sm:w-auto px-6 py-3 bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white font-bold text-xs sm:text-sm rounded-xl shadow-md transition-colors flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Save className="w-4 h-4" />
+              <span>Submit Attendance</span>
+            </button>
+          ) : (
+            <div className="text-xs font-semibold text-slate-500 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
+              Read-Only: Maintained by Faculty Mentor
+            </div>
+          )}
         </div>
       </div>
 

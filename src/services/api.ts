@@ -3,6 +3,7 @@ import {
   Student,
   Teacher,
   ClassBatch,
+  Campus,
   HifzRecord,
   AttendanceSession,
   TeacherEvaluation,
@@ -148,14 +149,121 @@ export const api = {
     });
   },
 
+  async deleteStudent(id: string): Promise<void> {
+    return request<void>(`/api/students/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async importStudentsCSV(rows: any[], isCommit: boolean = false): Promise<any> {
+    return request<any>('/api/students/import-csv', {
+      method: 'POST',
+      body: JSON.stringify({ rows, isCommit }),
+    });
+  },
+
+  // Campuses & Institutions
+  async getCampuses(): Promise<Campus[]> {
+    return request<Campus[]>('/api/campuses', {}, [
+      {
+        id: 'campus-main',
+        name: 'Markazul Hidayathil Islamiyya Main Campus',
+        code: 'MHI-MAIN',
+        arabicName: 'مركز الهداية الإسلامية - المقر الرئيسي',
+        address: 'Hidaya Nagar, Kombam, Kodakkad (PO), Mannarkkad, Palakkad',
+        phone: '+91 4924 222123',
+        email: 'hifz@markazulhidaya.edu.in',
+        status: 'Active',
+        establishedYear: '1994',
+        studentCount: 26,
+        teacherCount: 3,
+        classCount: 3,
+      },
+    ]);
+  },
+
+  async getCampusDetails(id: string): Promise<{ campus: Campus; students: Student[]; teachers: Teacher[]; classes: ClassBatch[] }> {
+    return request<{ campus: Campus; students: Student[]; teachers: Teacher[]; classes: ClassBatch[] }>(
+      `/api/campuses/${id}/details`
+    );
+  },
+
+  async createCampus(campus: Partial<Campus>): Promise<Campus> {
+    return request<Campus>('/api/campuses', {
+      method: 'POST',
+      body: JSON.stringify(campus),
+    });
+  },
+
+  async updateCampus(id: string, updates: Partial<Campus>): Promise<Campus> {
+    return request<Campus>(`/api/campuses/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+  },
+
+  async deleteCampus(id: string): Promise<void> {
+    return request<void>(`/api/campuses/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
   // Teachers
   async getTeachers(): Promise<Teacher[]> {
     return request<Teacher[]>('/api/teachers', {}, MOCK_TEACHERS);
   },
 
+  async createTeacher(teacherData: any): Promise<any> {
+    return request<any>('/api/teachers', {
+      method: 'POST',
+      body: JSON.stringify(teacherData),
+    });
+  },
+
+  async updateTeacher(id: string, updates: Partial<Teacher>): Promise<Teacher> {
+    return request<Teacher>(`/api/teachers/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+  },
+
+  async resetTeacherPassword(id: string, newPassword: string): Promise<any> {
+    return request<any>(`/api/teachers/${id}/reset-password`, {
+      method: 'POST',
+      body: JSON.stringify({ newPassword }),
+    });
+  },
+
+  async deleteTeacher(id: string): Promise<void> {
+    return request<void>(`/api/teachers/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
   // Classes
-  async getClasses(): Promise<ClassBatch[]> {
-    return request<ClassBatch[]>('/api/classes', {}, MOCK_CLASSES);
+  async getClasses(campusId?: string): Promise<ClassBatch[]> {
+    const query = campusId ? `?campusId=${encodeURIComponent(campusId)}` : '';
+    return request<ClassBatch[]>(`/api/classes${query}`, {}, MOCK_CLASSES);
+  },
+
+  async createClass(classData: Partial<ClassBatch>): Promise<ClassBatch> {
+    return request<ClassBatch>('/api/classes', {
+      method: 'POST',
+      body: JSON.stringify(classData),
+    });
+  },
+
+  async updateClass(id: string, updates: Partial<ClassBatch>): Promise<ClassBatch> {
+    return request<ClassBatch>(`/api/classes/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+  },
+
+  async deleteClass(id: string): Promise<void> {
+    return request<void>(`/api/classes/${id}`, {
+      method: 'DELETE',
+    });
   },
 
   // Attendance

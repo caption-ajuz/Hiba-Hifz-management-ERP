@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { HifzRecord } from '../models/HifzRecord';
 import { Student } from '../models/Student';
 import { emitHifzRecordCreated, emitHifzRecordUpdated } from '../socket';
@@ -31,16 +31,68 @@ const hifzRecordSchema = z.object({
   academicYear: z.string().default('2026 - 2027'),
 });
 
-// GET /api/hifz - List records with filtering & pagination
-router.get('/', async (req: Request, res: Response) => {
+// Helper: check if a student is assigned to an Usthad
+async function isStudentAssignedToUsthad(usthadId: string, assignedClassIds: string[] | undefined, studentId: string): Promise<boolean> {
+  const student = await Student.findOne({ id: studentId }).lean();
+  if (!student) return false;
+  if (student.assignedTeacherId === usthadId) return true;
+  if (assignedClassIds && assignedClassIds.includes(student.classId)) return true;
+  return false;
+}
+
+// GET /api/hifz - List records with role-scoped filtering & pagination
+router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const { studentId, teacherId, recordType, date, page, limit } = req.query;
+    const user = req.user!;
+    const { studentId, recordType, date, page, limit } = req.query;
 
     const query: any = {};
-    if (studentId) query.studentId = studentId;
-    if (teacherId) query.teacherId = teacherId;
     if (recordType) query.recordType = recordType;
     if (date) query.date = date;
+
+    // Strict Role-Based Query Isolation:
+    if (user.role === 'STUDENT') {
+      // Students can ONLY ever view their own records
+      query.studentId = user.studentId || '__none__';
+    } else if (user.role === 'PARENT') {
+      // Parents can ONLY view records for their linked children
+      const linked = user.linkedStudentIds || [];
+      if (studentId) {
+        if (!linked.includes(String(studentId))) {
+          return res.status(403).json({
+            success: false,
+            error: 'Access forbidden: You may only view Hifz records of your linked children.',
+          });
+        }
+        query.studentId = String(studentId);
+      } else {
+        query.studentId = { $in: linked };
+      }
+    } else if (user.role === 'USTHAD') {
+      // Usthad can only view records for students in their assigned classes or assigned directly to them
+      if (studentId) {
+        const assigned = await isStudentAssignedToUsthad(user.id, user.assignedClassIds, String(studentId));
+        if (!assigned) {
+          return res.status(403).json({
+            success: false,
+            error: 'Access forbidden: Student is not assigned to your mentorship.',
+          });
+        }
+        query.studentId = String(studentId);
+      } else {
+        const myStudents = await Student.find({
+          $or: [
+            { assignedTeacherId: user.id },
+            { classId: { $in: user.assignedClassIds || [] } },
+          ],
+        }).select('id').lean();
+        const myStudentIds = myStudents.map((s) => s.id);
+        query.studentId = { $in: myStudentIds };
+      }
+    } else {
+      // SUPER_ADMIN can view all, or filter by specific studentId if requested
+      if (studentId) query.studentId = String(studentId);
+    }
 
     const pageNum = Math.max(1, parseInt(page as string) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit as string) || 50));
@@ -68,8 +120,10 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 // POST /api/hifz - Create Hifz record (Sabaq, Sabqi, Murajath, Manzil)
+// SUPER_ADMIN or assigned USTHAD only! Parents & Students forbidden!
 router.post('/', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async (req: AuthRequest, res: Response) => {
   try {
+    const user = req.user!;
     const parse = hifzRecordSchema.safeParse(req.body);
     if (!parse.success) {
       return res.status(400).json({
@@ -79,14 +133,27 @@ router.post('/', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async (req: A
     }
 
     const data = parse.data;
+
+    // Verify Usthad is authorized for this student
+    if (user.role === 'USTHAD') {
+      const assigned = await isStudentAssignedToUsthad(user.id, user.assignedClassIds, data.studentId);
+      if (!assigned) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access forbidden: You can only record Hifz evaluation for your assigned students.',
+        });
+      }
+    }
+
     const recordId = data.id || `rec_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
     const newRecord = await HifzRecord.create({
       ...data,
+      teacherId: user.role === 'USTHAD' ? user.id : data.teacherId,
       id: recordId,
     });
 
-    // If Sabq was passed with Ayah counts, optionally update student's totalMemorizedAyahs
+    // If Sabq was passed with Ayah counts, update student's totalMemorizedAyahs
     if (data.recordType === 'SABQ' && data.status === 'Passed' && data.startAyah && data.endAyah) {
       const ayahsLearned = Math.max(1, data.endAyah - data.startAyah + 1);
       await Student.updateOne(
@@ -106,7 +173,7 @@ router.post('/', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async (req: A
     // Emit real-time event immediately
     emitHifzRecordCreated(newRecord);
 
-    await logAuditEvent('HIFZ_RECORD_CREATE', req.user, 'HifzRecord', recordId, {
+    await logAuditEvent('HIFZ_RECORD_CREATE', user, 'HifzRecord', recordId, {
       studentId: data.studentId,
       recordType: data.recordType,
       status: data.status,
@@ -114,7 +181,7 @@ router.post('/', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async (req: A
 
     return res.status(201).json({
       success: true,
-      message: 'Hifz record saved and broadcasted successfully in real-time.',
+      message: 'Hifz record saved and broadcasted successfully.',
       data: newRecord,
     });
   } catch (err: any) {
@@ -123,22 +190,37 @@ router.post('/', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async (req: A
   }
 });
 
-// PUT /api/hifz/:id
+// PUT /api/hifz/:id - Update Hifz record (SUPER_ADMIN or assigned USTHAD only)
 router.put('/:id', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async (req: AuthRequest, res: Response) => {
   try {
+    const user = req.user!;
     const { id } = req.params;
+
+    const existing = await HifzRecord.findOne({ id });
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Hifz record not found' });
+    }
+
+    if (user.role === 'USTHAD') {
+      const assigned = await isStudentAssignedToUsthad(user.id, user.assignedClassIds, existing.studentId);
+      if (!assigned) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access forbidden: You cannot modify records of unassigned students.',
+        });
+      }
+    }
+
     const updated = await HifzRecord.findOneAndUpdate(
       { id },
       { $set: req.body },
       { new: true }
     );
 
-    if (!updated) {
-      return res.status(404).json({ success: false, error: 'Hifz record not found' });
+    if (updated) {
+      emitHifzRecordUpdated(updated);
+      await logAuditEvent('HIFZ_RECORD_UPDATE', user, 'HifzRecord', id, req.body);
     }
-
-    emitHifzRecordUpdated(updated);
-    await logAuditEvent('HIFZ_RECORD_UPDATE', req.user, 'HifzRecord', id, req.body);
 
     return res.json({ success: true, data: updated });
   } catch (err: any) {

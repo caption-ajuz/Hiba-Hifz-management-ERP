@@ -1,0 +1,6 @@
+{
+  "summary":  "Implementation plan for HYBA Hifz Campus Management System: Role-Based Access Control (RBAC) audit, fixing role-confusion bugs (parent/student attendance restriction), implementing Campus & Institution management, Usthad account creation & auth linking, scoped Usthad student management, robust CSV import/export with validation & preview, dual-mode profile photo upload, and role-specific dashboard routing.",
+  "updatedAt":  "2026-11-08T18:05:26.492171897Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

@@ -19,6 +19,7 @@ import {
   Sparkles,
   Shield,
   HeartHandshake,
+  Landmark,
 } from 'lucide-react';
 import { DatabaseStatusIndicator } from './DatabaseStatusIndicator';
 
@@ -54,34 +55,36 @@ export const Navbar: React.FC<NavbarProps> = ({
       case 'SUPER_ADMIN':
         return [
           { id: 'dashboard', label: 'Overview', icon: Building2 },
-          { id: 'attendance', label: 'Attendance', icon: CalendarCheck },
-          { id: 'hifz', label: 'Hifz Records', icon: BookOpen },
+          { id: 'campuses', label: 'Campuses', icon: Landmark },
           { id: 'students', label: 'Students', icon: GraduationCap },
           { id: 'teachers', label: 'Teachers', icon: Users },
           { id: 'classes', label: 'Classes', icon: Layers },
+          { id: 'attendance', label: 'Attendance', icon: CalendarCheck },
+          { id: 'hifz', label: 'Hifz Records', icon: BookOpen },
           { id: 'reports', label: 'Reports', icon: FileText },
         ];
       case 'USTHAD':
         return [
-          { id: 'dashboard', label: 'My Dashboard', icon: Building2 },
-          { id: 'attendance', label: 'Daily Attendance', icon: CalendarCheck },
-          { id: 'hifz', label: 'Hifz Tracker', icon: BookOpen },
+          { id: 'dashboard', label: 'Dashboard', icon: Building2 },
+          { id: 'classes', label: 'My Classes', icon: Layers },
           { id: 'students', label: 'My Students', icon: GraduationCap },
-          { id: 'reports', label: 'Progress Reports', icon: FileText },
+          { id: 'attendance', label: 'Attendance', icon: CalendarCheck },
+          { id: 'hifz', label: 'Hifz Tracker', icon: BookOpen },
+          { id: 'reports', label: 'Reports', icon: FileText },
         ];
       case 'STUDENT':
         return [
           { id: 'dashboard', label: 'My Learning', icon: BookOpen },
-          { id: 'hifz', label: 'Hifz History', icon: Sparkles },
+          { id: 'hifz', label: 'Sabq & Manzil', icon: Sparkles },
           { id: 'attendance', label: 'Attendance', icon: CalendarCheck },
           { id: 'reports', label: 'My Progress', icon: FileText },
         ];
       case 'PARENT':
         return [
           { id: 'dashboard', label: 'Child Portal', icon: HeartHandshake },
-          { id: 'hifz', label: 'Hifz Updates', icon: BookOpen },
+          { id: 'hifz', label: 'Academic Records', icon: BookOpen },
           { id: 'attendance', label: 'Attendance', icon: CalendarCheck },
-          { id: 'reports', label: 'Term Reports', icon: FileText },
+          { id: 'reports', label: 'Progress Reports', icon: FileText },
         ];
     }
   };
