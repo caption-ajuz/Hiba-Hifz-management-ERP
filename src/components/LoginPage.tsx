@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { INSTITUTION_INFO, MOCK_USERS } from '../data/mockData';
+import { api } from '../services/api';
 import { UserProfile, UserRole } from '../types';
 import {
   User,
@@ -42,12 +43,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     }
   };
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
     setIsSubmitting(true);
 
-    const trimmedUser = usernameInput.trim().toLowerCase();
+    const trimmedUser = usernameInput.trim();
     const trimmedPass = passwordInput.trim();
 
     if (!trimmedUser) {
@@ -62,18 +63,25 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
       return;
     }
 
-    // Authenticate against MOCK_USERS
-    const matchedUser = Object.values(MOCK_USERS).find((u) => {
-      const matchUsername = (u.username || '').toLowerCase() === trimmedUser;
-      const matchEmail = u.email.toLowerCase() === trimmedUser;
-      const matchRef = (u.referenceId || '').toLowerCase() === trimmedUser;
-      const matchPassword = (u.password || 'password123') === trimmedPass;
+    try {
+      // 1. Authenticate against backend MongoDB Atlas API & receive JWT
+      const result = await api.login(trimmedUser, trimmedPass);
+      if (rememberMe) {
+        localStorage.setItem('hyba_auth_user_id', result.user.id);
+      }
+      onLoginSuccess(result.user);
+    } catch (err: any) {
+      // If network/offline, check local fallback
+      const cleanUser = trimmedUser.toLowerCase();
+      const matchedUser = Object.values(MOCK_USERS).find((u) => {
+        const matchUsername = (u.username || '').toLowerCase() === cleanUser;
+        const matchEmail = u.email.toLowerCase() === cleanUser;
+        const matchRef = (u.referenceId || '').toLowerCase() === cleanUser;
+        const matchPassword = (u.password || 'password123') === trimmedPass;
 
-      return (matchUsername || matchEmail || matchRef) && matchPassword;
-    });
+        return (matchUsername || matchEmail || matchRef) && matchPassword;
+      });
 
-    setTimeout(() => {
-      setIsSubmitting(false);
       if (matchedUser) {
         if (rememberMe) {
           localStorage.setItem('hyba_auth_user_id', matchedUser.id);
@@ -81,10 +89,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
         onLoginSuccess(matchedUser);
       } else {
         setErrorMessage(
-          'Invalid credentials. Please verify your username and password, or use one of the quick test accounts below.'
+          err.message || 'Invalid credentials. Please verify your username and password, or use one of the quick test accounts below.'
         );
       }
-    }, 400);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleForgotSubmit = (e: React.FormEvent) => {

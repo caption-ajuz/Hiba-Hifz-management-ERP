@@ -20,6 +20,7 @@ import {
   Shield,
   HeartHandshake,
 } from 'lucide-react';
+import { DatabaseStatusIndicator } from './DatabaseStatusIndicator';
 
 interface NavbarProps {
   currentUser: UserProfile;
@@ -234,6 +235,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </button>
                 </div>
               )}
+
+              {/* Minimal Database & Real-Time Status Indicator (Phase 5) */}
+              <DatabaseStatusIndicator userRole={currentUser.role} />
 
               {/* Profile & Role Switcher Trigger Button */}
               <button

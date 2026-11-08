@@ -23,7 +23,10 @@ import {
   HifzRecord,
   AttendanceSession,
   TeacherEvaluation,
+  Announcement,
 } from './types';
+import { api, removeAuthToken } from './services/api';
+import { subscribeToRealtimeEvents } from './services/socket';
 
 // Components
 import { Navbar } from './components/Navbar';
@@ -72,6 +75,7 @@ export default function App() {
   const [hifzRecords, setHifzRecords] = useState<HifzRecord[]>(INITIAL_HIFZ_RECORDS);
   const [attendanceSession, setAttendanceSession] = useState<AttendanceSession>(INITIAL_ATTENDANCE_SESSION);
   const [evaluations, setEvaluations] = useState<TeacherEvaluation[]>(MOCK_EVALUATIONS);
+  const [announcements, setAnnouncements] = useState<Announcement[]>(MOCK_ANNOUNCEMENTS);
 
   // Modals state
   const [isRoleSwitcherOpen, setIsRoleSwitcherOpen] = useState<boolean>(false);
@@ -80,6 +84,94 @@ export default function App() {
   const [idCardStudent, setIdCardStudent] = useState<Student>(MOCK_STUDENTS[4]); // default to Mohammed Ajash
   const [isTimetableOpen, setIsTimetableOpen] = useState<boolean>(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState<boolean>(false);
+
+  // Load Data from MongoDB Atlas on authentication and mount
+  useEffect(() => {
+    let isMounted = true;
+
+    async function fetchAppData() {
+      try {
+        const [loadedStudents, loadedTeachers, loadedClasses, loadedHifz, loadedEvals, loadedAnnouncements] =
+          await Promise.all([
+            api.getStudents(),
+            api.getTeachers(),
+            api.getClasses(),
+            api.getHifzRecords(),
+            api.getEvaluations(),
+            api.getAnnouncements(),
+          ]);
+
+        if (isMounted) {
+          if (loadedStudents && loadedStudents.length > 0) setStudents(loadedStudents);
+          if (loadedTeachers && loadedTeachers.length > 0) setTeachers(loadedTeachers);
+          if (loadedClasses && loadedClasses.length > 0) setClasses(loadedClasses);
+          if (loadedHifz && loadedHifz.length > 0) setHifzRecords(loadedHifz);
+          if (loadedEvals && loadedEvals.length > 0) setEvaluations(loadedEvals);
+          if (loadedAnnouncements && loadedAnnouncements.length > 0) setAnnouncements(loadedAnnouncements);
+        }
+      } catch (err) {
+        console.warn('[HYBA Frontend] Fallback active:', err);
+      }
+    }
+
+    if (isAuthenticated) {
+      fetchAppData();
+    }
+
+    // Subscribe to real-time events via Socket.IO (Phase 4)
+    const unsubscribe = subscribeToRealtimeEvents({
+      onAttendanceUpdated: (data) => {
+        setAttendanceSession((prev) => {
+          if (prev.classId === data.classId && prev.date === data.date && prev.sessionHour === data.sessionHour) {
+            return {
+              ...prev,
+              records: { ...prev.records, ...data.records },
+            };
+          }
+          return prev;
+        });
+      },
+      onHifzRecordCreated: (newRec) => {
+        setHifzRecords((prev) => {
+          if (prev.some((r) => r.id === newRec.id)) return prev;
+          return [newRec, ...prev];
+        });
+      },
+      onHifzRecordUpdated: (updatedRec) => {
+        setHifzRecords((prev) => prev.map((r) => (r.id === updatedRec.id ? updatedRec : r)));
+      },
+      onStudentUpdated: (updatedStudent) => {
+        setStudents((prev) => {
+          const idx = prev.findIndex((s) => s.id === updatedStudent.id);
+          if (idx >= 0) {
+            const next = [...prev];
+            next[idx] = updatedStudent;
+            return next;
+          }
+          return [...prev, updatedStudent];
+        });
+      },
+      onTeacherUpdated: (updatedTeacher) => {
+        setTeachers((prev) => {
+          const idx = prev.findIndex((t) => t.id === updatedTeacher.id);
+          if (idx >= 0) {
+            const next = [...prev];
+            next[idx] = updatedTeacher;
+            return next;
+          }
+          return [...prev, updatedTeacher];
+        });
+      },
+      onAnnouncementCreated: (newAnn) => {
+        setAnnouncements((prev) => [newAnn, ...prev]);
+      },
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, [isAuthenticated]);
 
   // Handle Login
   const handleLoginSuccess = (user: UserProfile) => {
@@ -91,15 +183,21 @@ export default function App() {
 
   // Handle Logout
   const handleLogout = () => {
+    removeAuthToken();
     setIsAuthenticated(false);
     localStorage.removeItem('hyba_auth_user_id');
   };
 
   // Handle Role / Profile Switching
-  const handleSelectUser = (user: UserProfile) => {
+  const handleSelectUser = async (user: UserProfile) => {
     setCurrentUser(user);
     localStorage.setItem('hyba_auth_user_id', user.id);
-    setCurrentTab('dashboard'); // Direct to appropriate dashboard for the role
+    setCurrentTab('dashboard');
+    try {
+      await api.switchUser(user.id);
+    } catch {
+      // Handled seamlessly
+    }
   };
 
   const handleOpenIdCard = (student?: Student) => {
@@ -112,19 +210,37 @@ export default function App() {
     setIsIdCardOpen(true);
   };
 
-  const handleAddHifzRecord = (newRecord: HifzRecord) => {
+  const handleAddHifzRecord = async (newRecord: HifzRecord) => {
+    // Optimistic UI update
     setHifzRecords((prev) => [newRecord, ...prev]);
+    try {
+      await api.createHifzRecord(newRecord);
+    } catch (err) {
+      console.error('[HYBA] Error persisting Hifz record:', err);
+    }
   };
 
-  const handleSaveAttendanceSession = (session: AttendanceSession) => {
+  const handleSaveAttendanceSession = async (session: AttendanceSession) => {
+    // Optimistic UI update
     setAttendanceSession(session);
+    try {
+      await api.saveAttendanceSession(session);
+    } catch (err) {
+      console.error('[HYBA] Error persisting attendance:', err);
+    }
   };
 
-  const handleAddStudent = (newStudent: Student) => {
+  const handleAddStudent = async (newStudent: Student) => {
+    // Optimistic UI update
     setStudents((prev) => [...prev, newStudent]);
+    try {
+      await api.createStudent(newStudent);
+    } catch (err) {
+      console.error('[HYBA] Error creating student in MongoDB:', err);
+    }
   };
 
-  const handleCompleteEvaluation = (evalId: string, ratings: any) => {
+  const handleCompleteEvaluation = async (evalId: string, ratings: any) => {
     setEvaluations((prev) =>
       prev.map((e) =>
         e.id === evalId
@@ -136,6 +252,11 @@ export default function App() {
           : e
       )
     );
+    try {
+      await api.completeEvaluation(evalId, ratings);
+    } catch (err) {
+      console.error('[HYBA] Error completing evaluation:', err);
+    }
   };
 
   // If user is not authenticated, render the dedicated Campus Login Page
@@ -153,7 +274,7 @@ export default function App() {
               teachers={teachers}
               classes={classes}
               records={hifzRecords}
-              announcements={MOCK_ANNOUNCEMENTS}
+              announcements={announcements}
               currentUser={currentUser}
               onNavigate={setCurrentTab}
               onOpenAttendance={() => setCurrentTab('attendance')}

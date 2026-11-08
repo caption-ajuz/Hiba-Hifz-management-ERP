@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Student, ClassBatch, Teacher, UserProfile } from '../types';
+import { api } from '../services/api';
 import {
   GraduationCap,
   Search,
@@ -14,6 +15,9 @@ import {
   MoreVertical,
   X,
   CheckCircle2,
+  UploadCloud,
+  Camera,
+  Loader2,
 } from 'lucide-react';
 
 interface StudentManagementProps {
@@ -47,6 +51,25 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
   const [parentName, setParentName] = useState('');
   const [parentPhone, setParentPhone] = useState('+91 ');
   const [classId, setClassId] = useState(classes[0]?.id || 'batch-a');
+  const [photoUrl, setPhotoUrl] = useState('/src/assets/images/avatar_student_male_1794118079992.jpg');
+  const [photoPublicId, setPhotoPublicId] = useState<string | undefined>(undefined);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+
+  const handlePhotoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingPhoto(true);
+    try {
+      const res = await api.uploadMedia(file, 'students', photoPublicId);
+      setPhotoUrl(res.secure_url);
+      setPhotoPublicId(res.public_id);
+    } catch (err: any) {
+      console.error('Failed to upload image to Cloudinary', err);
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
 
   const filteredStudents = students.filter((s) => {
     if (selectedClassFilter !== 'ALL' && s.classId !== selectedClassFilter) {
@@ -72,7 +95,7 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
       admissionNumber: admissionNumber,
       fullName: fullName,
       arabicName: arabicName || fullName,
-      photo: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+      photo: photoUrl,
       dateOfBirth: dob,
       gender: gender,
       parentName: parentName,
@@ -259,6 +282,38 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
             </div>
 
             <form onSubmit={handleCreateStudent} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+              {/* Cloudinary Photo Upload & Preview */}
+              <div className="flex items-center gap-4 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <div className="relative w-14 h-14 rounded-full overflow-hidden border-2 border-emerald-500 bg-slate-100 shrink-0">
+                  <img
+                    src={photoUrl}
+                    alt="Preview"
+                    className="w-full h-full object-cover"
+                    referrerPolicy="no-referrer"
+                  />
+                  {isUploadingPhoto && (
+                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                      <Loader2 className="w-5 h-5 text-white animate-spin" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1">
+                  <div className="text-xs font-bold text-slate-900">Student Profile Photo</div>
+                  <div className="text-[11px] text-slate-500">Secure Cloudinary CDN upload</div>
+                  <label className="mt-1.5 inline-flex items-center gap-1.5 px-3 py-1 bg-white border border-slate-200 hover:border-emerald-500 text-slate-700 hover:text-emerald-700 text-xs font-semibold rounded-lg cursor-pointer transition-colors shadow-2xs">
+                    <Camera className="w-3.5 h-3.5" />
+                    <span>{isUploadingPhoto ? 'Uploading to Cloudinary...' : 'Upload Picture'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handlePhotoFileChange}
+                      className="hidden"
+                      disabled={isUploadingPhoto}
+                    />
+                  </label>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
