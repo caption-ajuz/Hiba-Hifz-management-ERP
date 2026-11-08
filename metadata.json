@@ -1,0 +1,6 @@
+{
+  "name": "HYBA – Hifz Campus Management System",
+  "description": "Centralized Hifz Campus Management Web Application for Markazul Hidayathil Islamiyya with role-based dashboards, interactive numbered attendance grid, and Sabq, Murajath, and Manzil tracking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
