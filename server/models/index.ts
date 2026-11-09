@@ -8,3 +8,5 @@ export * from './HifzRecord';
 export * from './Announcement';
 export * from './Campus';
 export * from './InstitutionModels';
+export * from './CollegeEvent';
+export * from './TimetableSlot';

@@ -8,6 +8,8 @@ import {
   AttendanceSession,
   TeacherEvaluation,
   Announcement,
+  CollegeEvent,
+  TimetableSlot,
 } from '../types';
 import {
   MOCK_USERS,
@@ -370,4 +372,55 @@ export const api = {
     const data = await res.json();
     return data.diagnostics;
   },
+
+  // College Events & Programs
+  async getEvents(): Promise<CollegeEvent[]> {
+    return request<CollegeEvent[]>('/api/events');
+  },
+
+  async createEvent(event: Partial<CollegeEvent>): Promise<CollegeEvent> {
+    return request<CollegeEvent>('/api/events', {
+      method: 'POST',
+      body: JSON.stringify(event),
+    });
+  },
+
+  async updateEvent(id: string, updates: Partial<CollegeEvent>): Promise<CollegeEvent> {
+    return request<CollegeEvent>(`/api/events/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+  },
+
+  async deleteEvent(id: string): Promise<void> {
+    return request<void>(`/api/events/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  // Timetable & Schedule Slots
+  async getTimetable(): Promise<TimetableSlot[]> {
+    return request<TimetableSlot[]>('/api/timetable');
+  },
+
+  async createTimetableSlot(slot: Partial<TimetableSlot>): Promise<TimetableSlot> {
+    return request<TimetableSlot>('/api/timetable', {
+      method: 'POST',
+      body: JSON.stringify(slot),
+    });
+  },
+
+  async updateTimetableSlot(id: string, updates: Partial<TimetableSlot>): Promise<TimetableSlot> {
+    return request<TimetableSlot>(`/api/timetable/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+  },
+
+  async deleteTimetableSlot(id: string): Promise<void> {
+    return request<void>(`/api/timetable/${id}`, {
+      method: 'DELETE',
+    });
+  },
 };
+

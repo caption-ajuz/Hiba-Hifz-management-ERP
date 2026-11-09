@@ -24,6 +24,9 @@ import {
   FileCheck,
   AlertTriangle,
   RefreshCw,
+  Edit2,
+  Trash2,
+  Layers,
 } from 'lucide-react';
 
 interface StudentManagementProps {
@@ -33,6 +36,9 @@ interface StudentManagementProps {
   currentUser: UserProfile;
   onOpenIdCard: (student: Student) => void;
   onAddStudent: (student: Student) => void;
+  onUpdateStudent?: (student: Student) => void;
+  onDeleteStudent?: (id: string) => void;
+  onAddClass?: (newClass: ClassBatch) => void;
   onRefreshStudents?: () => void;
 }
 
@@ -43,6 +49,9 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
   currentUser,
   onOpenIdCard,
   onAddStudent,
+  onUpdateStudent,
+  onDeleteStudent,
+  onAddClass,
   onRefreshStudents,
 }) => {
   const isUsthad = currentUser.role === 'USTHAD';
@@ -76,12 +85,173 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
   const [photoPublicId, setPhotoPublicId] = useState<string | undefined>(undefined);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
+  // Edit Student State
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [editFullName, setEditFullName] = useState('');
+  const [editArabicName, setEditArabicName] = useState('');
+  const [editRollNumber, setEditRollNumber] = useState(1);
+  const [editAdmissionNumber, setEditAdmissionNumber] = useState('');
+  const [editDob, setEditDob] = useState('2011-01-01');
+  const [editGender, setEditGender] = useState<'Male' | 'Female'>('Male');
+  const [editClassId, setEditClassId] = useState('batch-a');
+  const [editParentName, setEditParentName] = useState('');
+  const [editParentPhone, setEditParentPhone] = useState('+91 ');
+  const [editParentEmail, setEditParentEmail] = useState('');
+  const [editAccountStatus, setEditAccountStatus] = useState<'Active' | 'On Leave' | 'Completed'>('Active');
+  const [editCurrentJuz, setEditCurrentJuz] = useState(1);
+  const [editPhotoUrl, setEditPhotoUrl] = useState('/assets/images/avatar_student_male_1794118079992.jpg');
+  const [isUpdatingStudent, setIsUpdatingStudent] = useState(false);
+
+  // Delete Student State
+  const [studentToDelete, setStudentToDelete] = useState<Student | null>(null);
+  const [isDeletingStudent, setIsDeletingStudent] = useState(false);
+
+  // Batch Quick Creation / Edit State (for use during enrollment or management)
+  const [showBatchModal, setShowBatchModal] = useState(false);
+  const [batchToEdit, setBatchToEdit] = useState<ClassBatch | null>(null);
+  const [batchName, setBatchName] = useState('');
+  const [batchArabicName, setBatchArabicName] = useState('');
+  const [batchUsthadId, setBatchUsthadId] = useState(teachers[0]?.id || 'usr_teacher_01');
+  const [batchRoom, setBatchRoom] = useState('Hall 101');
+  const [batchCapacity, setBatchCapacity] = useState(30);
+  const [batchAcademicYear, setBatchAcademicYear] = useState('2026 - 2027');
+  const [isSubmittingBatch, setIsSubmittingBatch] = useState(false);
+  const [batchError, setBatchError] = useState<string | null>(null);
+
   // CSV Import State
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [csvPreviewData, setCsvPreviewData] = useState<any | null>(null);
   const [isParsingCsv, setIsParsingCsv] = useState(false);
   const [isCommittingCsv, setIsCommittingCsv] = useState(false);
   const [importSuccessSummary, setImportSuccessSummary] = useState<any | null>(null);
+
+  // Open Edit Student Modal
+  const openEditStudent = (std: Student) => {
+    setEditingStudent(std);
+    setEditFullName(std.fullName);
+    setEditArabicName(std.arabicName || '');
+    setEditRollNumber(std.rollNumber);
+    setEditAdmissionNumber(std.admissionNumber);
+    setEditDob(std.dateOfBirth || '2011-01-01');
+    setEditGender(std.gender || 'Male');
+    setEditClassId(std.classId);
+    setEditParentName(std.parentName || '');
+    setEditParentPhone(std.parentPhone || '+91 ');
+    setEditParentEmail(std.parentEmail || '');
+    setEditAccountStatus(std.accountStatus || 'Active');
+    setEditCurrentJuz(std.currentJuz || 1);
+    setEditPhotoUrl(std.photo || '/assets/images/avatar_student_male_1794118079992.jpg');
+    setShowEditModal(true);
+  };
+
+  const handleUpdateStudent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingStudent) return;
+    setIsUpdatingStudent(true);
+    try {
+      const updates: Partial<Student> = {
+        fullName: editFullName,
+        arabicName: editArabicName,
+        rollNumber: Number(editRollNumber),
+        admissionNumber: editAdmissionNumber,
+        dateOfBirth: editDob,
+        gender: editGender,
+        classId: editClassId,
+        parentName: editParentName,
+        parentPhone: editParentPhone,
+        parentEmail: editParentEmail,
+        accountStatus: editAccountStatus,
+        currentJuz: Number(editCurrentJuz),
+        photo: editPhotoUrl,
+      };
+
+      const updated = await api.updateStudent(editingStudent.id, updates);
+      if (onUpdateStudent) onUpdateStudent(updated);
+      if (onRefreshStudents) onRefreshStudents();
+      setShowEditModal(false);
+    } catch (err: any) {
+      alert(`Failed to update student: ${err.message}`);
+    } finally {
+      setIsUpdatingStudent(false);
+    }
+  };
+
+  const handleDeleteStudent = async () => {
+    if (!studentToDelete) return;
+    setIsDeletingStudent(true);
+    try {
+      await api.deleteStudent(studentToDelete.id);
+      if (onDeleteStudent) onDeleteStudent(studentToDelete.id);
+      if (onRefreshStudents) onRefreshStudents();
+      setStudentToDelete(null);
+    } catch (err: any) {
+      alert(`Failed to delete student: ${err.message}`);
+    } finally {
+      setIsDeletingStudent(false);
+    }
+  };
+
+  // Open Quick Batch Create / Edit
+  const openAddBatchModal = () => {
+    setBatchToEdit(null);
+    setBatchName('');
+    setBatchArabicName('');
+    setBatchUsthadId(isUsthad ? currentUser.id : teachers[0]?.id || 'usr_teacher_01');
+    setBatchRoom('Hall 104');
+    setBatchCapacity(30);
+    setBatchAcademicYear('2026 - 2027');
+    setBatchError(null);
+    setShowBatchModal(true);
+  };
+
+  const openEditBatchModal = (batch: ClassBatch) => {
+    setBatchToEdit(batch);
+    setBatchName(batch.name);
+    setBatchArabicName(batch.arabicName || '');
+    setBatchUsthadId(batch.usthadId);
+    setBatchRoom(batch.roomNumber || 'Hall 101');
+    setBatchCapacity(batch.capacity || 30);
+    setBatchAcademicYear(batch.academicYear || '2026 - 2027');
+    setBatchError(null);
+    setShowBatchModal(true);
+  };
+
+  const handleSaveBatch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBatchError(null);
+    setIsSubmittingBatch(true);
+    try {
+      const payload = {
+        name: batchName,
+        arabicName: batchArabicName || batchName,
+        usthadId: batchUsthadId,
+        roomNumber: batchRoom,
+        capacity: Number(batchCapacity),
+        academicYear: batchAcademicYear,
+        campusId: 'campus-main',
+      };
+
+      if (batchToEdit) {
+        const updated = await api.updateClass(batchToEdit.id, payload);
+        if (onRefreshStudents) onRefreshStudents();
+        setShowBatchModal(false);
+      } else {
+        const created = await api.createClass(payload);
+        if (onAddClass) onAddClass(created);
+        if (onRefreshStudents) onRefreshStudents();
+        // Automatically select the new batch in student enrollment
+        setClassId(created.id);
+        setEditClassId(created.id);
+        setShowBatchModal(false);
+      }
+    } catch (err: any) {
+      setBatchError(err.message || 'Failed to save batch');
+    } finally {
+      setIsSubmittingBatch(false);
+    }
+  };
+
 
   // Photo upload handler (Dual-mode: Cloudinary with local server fallback)
   const handlePhotoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -474,14 +644,35 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
                         <div className="text-[10px] text-slate-400 font-mono">{std.parentPhone}</div>
                       </td>
                       <td className="py-3 px-4 text-right">
-                        <button
-                          onClick={() => onOpenIdCard(std)}
-                          className="px-2.5 py-1 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1"
-                          title="View Digital Student ID Card"
-                        >
-                          <IdCard className="w-3.5 h-3.5" />
-                          <span>ID Card</span>
-                        </button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => onOpenIdCard(std)}
+                            className="px-2 py-1 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1"
+                            title="View Digital Student ID Card"
+                          >
+                            <IdCard className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">ID</span>
+                          </button>
+
+                          {(!isUsthad || (currentUser.assignedClassIds?.includes(std.classId) || std.assignedTeacherId === currentUser.id)) && (
+                            <>
+                              <button
+                                onClick={() => openEditStudent(std)}
+                                className="p-1 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                                title="Edit Student Profile"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => setStudentToDelete(std)}
+                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                title="Delete Student Record"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -790,20 +981,42 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Class / Batch Assignment *
-                  </label>
-                  <select
-                    value={classId}
-                    onChange={(e) => setClassId(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-medium"
-                  >
-                    {availableClasses.map((cls) => (
-                      <option key={cls.id} value={cls.id}>
-                        {cls.name}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-slate-700">
+                      Class / Batch Assignment *
+                    </label>
+                    <button
+                      type="button"
+                      onClick={openAddBatchModal}
+                      className="text-[11px] text-emerald-700 hover:text-emerald-900 font-bold flex items-center gap-1 cursor-pointer hover:underline"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>+ Add Batch</span>
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <select
+                      value={classId}
+                      onChange={(e) => setClassId(e.target.value)}
+                      className="flex-1 px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-medium"
+                    >
+                      {availableClasses.map((cls) => (
+                        <option key={cls.id} value={cls.id}>
+                          {cls.name}
+                        </option>
+                      ))}
+                    </select>
+                    {availableClasses.find((c) => c.id === classId) && (
+                      <button
+                        type="button"
+                        onClick={() => openEditBatchModal(availableClasses.find((c) => c.id === classId)!)}
+                        className="p-2 text-slate-500 hover:text-emerald-700 border border-slate-200 rounded-lg hover:bg-slate-100 cursor-pointer"
+                        title="Edit this batch"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -848,6 +1061,368 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
                   className="px-5 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-xs cursor-pointer"
                 >
                   Save & Register
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Student Modal */}
+      {showEditModal && editingStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-emerald-950 text-white">
+              <div className="flex items-center gap-2">
+                <Edit2 className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-sm sm:text-base font-bold">Edit Student Profile & Enrollment</h3>
+              </div>
+              <button
+                onClick={() => setShowEditModal(false)}
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateStudent} className="p-6 space-y-3.5 text-xs overflow-y-auto">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Student Full Name *
+                  </label>
+                  <input
+                    required
+                    type="text"
+                    value={editFullName}
+                    onChange={(e) => setEditFullName(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Arabic Name
+                  </label>
+                  <input
+                    type="text"
+                    value={editArabicName}
+                    onChange={(e) => setEditArabicName(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-arabic"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Admission Number *
+                  </label>
+                  <input
+                    required
+                    type="text"
+                    value={editAdmissionNumber}
+                    onChange={(e) => setEditAdmissionNumber(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Roll Number *
+                  </label>
+                  <input
+                    required
+                    type="number"
+                    value={editRollNumber}
+                    onChange={(e) => setEditRollNumber(Number(e.target.value))}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Date of Birth
+                  </label>
+                  <input
+                    type="date"
+                    value={editDob}
+                    onChange={(e) => setEditDob(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Gender
+                  </label>
+                  <select
+                    value={editGender}
+                    onChange={(e) => setEditGender(e.target.value as any)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-medium"
+                  >
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-semibold text-slate-700">
+                      Class / Batch *
+                    </label>
+                    <button
+                      type="button"
+                      onClick={openAddBatchModal}
+                      className="text-[10px] text-emerald-700 font-bold hover:underline"
+                    >
+                      + Add Batch
+                    </button>
+                  </div>
+                  <select
+                    value={editClassId}
+                    onChange={(e) => setEditClassId(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-medium"
+                  >
+                    {availableClasses.map((cls) => (
+                      <option key={cls.id} value={cls.id}>
+                        {cls.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Account Status
+                  </label>
+                  <select
+                    value={editAccountStatus}
+                    onChange={(e) => setEditAccountStatus(e.target.value as any)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-medium"
+                  >
+                    <option value="Active">Active</option>
+                    <option value="On Leave">On Leave</option>
+                    <option value="Completed">Completed</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Current Memorization (Juz)
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={30}
+                    value={editCurrentJuz}
+                    onChange={(e) => setEditCurrentJuz(Number(e.target.value))}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Parent Contact Phone *
+                  </label>
+                  <input
+                    required
+                    type="text"
+                    value={editParentPhone}
+                    onChange={(e) => setEditParentPhone(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Parent / Guardian Full Name
+                </label>
+                <input
+                  type="text"
+                  value={editParentName}
+                  onChange={(e) => setEditParentName(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowEditModal(false)}
+                  className="px-4 py-2 text-slate-600 bg-slate-100 rounded-lg font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUpdatingStudent}
+                  className="px-5 py-2 font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-xs cursor-pointer"
+                >
+                  {isUpdatingStudent ? 'Saving...' : 'Update Student'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Student Confirmation Modal */}
+      {studentToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl border border-slate-200 animate-fade-in">
+            <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <div className="text-center">
+              <h3 className="text-base font-bold text-slate-900">Delete Student Record?</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Are you sure you want to permanently delete <strong>{studentToDelete.fullName}</strong> ({studentToDelete.admissionNumber})?
+              </p>
+            </div>
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                onClick={() => setStudentToDelete(null)}
+                className="flex-1 py-2 text-xs font-semibold text-slate-600 bg-slate-100 rounded-xl hover:bg-slate-200"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteStudent}
+                disabled={isDeletingStudent}
+                className="flex-1 py-2 text-xs font-bold text-white bg-rose-600 rounded-xl hover:bg-rose-700 flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                {isDeletingStudent ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Add / Edit Batch Modal */}
+      {showBatchModal && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-emerald-950 text-white">
+              <div className="flex items-center gap-2">
+                <Layers className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-sm sm:text-base font-bold">
+                  {batchToEdit ? 'Edit Class Batch' : 'Create New Class Batch'}
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowBatchModal(false)}
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveBatch} className="p-6 space-y-3.5 text-xs">
+              {batchError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{batchError}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Batch Name *
+                </label>
+                <input
+                  required
+                  type="text"
+                  placeholder="e.g. Hifz Batch D (Al-Kawthar)"
+                  value={batchName}
+                  onChange={(e) => setBatchName(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Arabic Name
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. شعبة الكوثر"
+                  value={batchArabicName}
+                  onChange={(e) => setBatchArabicName(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-arabic"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Mentor Usthad
+                </label>
+                <select
+                  value={batchUsthadId}
+                  onChange={(e) => setBatchUsthadId(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-medium"
+                >
+                  {teachers.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.fullName} ({t.teacherId})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Room / Study Hall
+                  </label>
+                  <input
+                    type="text"
+                    value={batchRoom}
+                    onChange={(e) => setBatchRoom(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Seat Capacity
+                  </label>
+                  <input
+                    type="number"
+                    value={batchCapacity}
+                    onChange={(e) => setBatchCapacity(Number(e.target.value))}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Academic Year
+                </label>
+                <input
+                  type="text"
+                  value={batchAcademicYear}
+                  onChange={(e) => setBatchAcademicYear(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-mono"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowBatchModal(false)}
+                  className="px-4 py-2 text-slate-600 bg-slate-100 rounded-lg font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingBatch}
+                  className="px-5 py-2 font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-xs cursor-pointer"
+                >
+                  {isSubmittingBatch ? 'Saving...' : batchToEdit ? 'Save Changes' : 'Create Batch'}
                 </button>
               </div>
             </form>

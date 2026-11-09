@@ -5,6 +5,7 @@ import { JUZ_NAMES } from '../data/quranData';
 import { api } from '../services/api';
 import {
   BookOpen,
+  Calendar,
   CalendarCheck,
   Sparkles,
   IdCard,
@@ -165,6 +166,13 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           >
             <Clock className="w-3.5 h-3.5 text-emerald-200" />
             <span>Timetable</span>
+          </button>
+          <button
+            onClick={() => onNavigate('events')}
+            className="px-3 py-2 bg-emerald-800/80 hover:bg-emerald-800 text-white font-semibold text-xs rounded-xl border border-emerald-600 transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+          >
+            <Calendar className="w-3.5 h-3.5 text-emerald-200" />
+            <span>Events</span>
           </button>
         </div>
       </div>

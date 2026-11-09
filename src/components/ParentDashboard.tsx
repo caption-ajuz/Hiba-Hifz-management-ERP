@@ -3,6 +3,7 @@ import { INSTITUTION_INFO } from '../data/mockData';
 import { Student, HifzRecord, UserProfile } from '../types';
 import {
   HeartHandshake,
+  Calendar,
   BookOpen,
   CalendarCheck,
   Phone,
@@ -105,6 +106,13 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
             >
               <IdCard className="w-3.5 h-3.5 text-emerald-700" />
               <span>View ID Card</span>
+            </button>
+            <button
+              onClick={() => onNavigate('events')}
+              className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold rounded-xl border border-emerald-200 transition-colors flex items-center gap-1.5 cursor-pointer"
+            >
+              <Calendar className="w-3.5 h-3.5 text-emerald-700" />
+              <span>College Events</span>
             </button>
           </div>
         </div>

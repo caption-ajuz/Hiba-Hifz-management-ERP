@@ -174,3 +174,49 @@ export interface QuranSurah {
   ayahs: number;
   juz: number;
 }
+
+export type EventCategory =
+  | 'Academic'
+  | 'Competition'
+  | 'Ceremony'
+  | 'Exam'
+  | 'Holiday'
+  | 'Majlis'
+  | 'Parent-Teacher Meeting'
+  | 'General';
+
+export type EventStatus = 'Scheduled' | 'Ongoing' | 'Completed' | 'Postponed';
+
+export interface CollegeEvent {
+  id: string;
+  title: string;
+  arabicTitle?: string;
+  description: string;
+  category: EventCategory;
+  startDate: string; // YYYY-MM-DD
+  endDate?: string; // YYYY-MM-DD
+  startTime?: string; // e.g. "09:00 AM"
+  endTime?: string; // e.g. "01:00 PM"
+  venue: string;
+  campusId?: string;
+  targetAudience: 'ALL' | 'STUDENTS' | 'PARENTS' | 'TEACHERS';
+  status: EventStatus;
+  createdBy?: string;
+  creatorRole?: string;
+  isImportant?: boolean;
+}
+
+export interface TimetableSlot {
+  id: string;
+  day: string; // 'D1' | 'D2' | 'D3' | 'D4' | 'D5'
+  slotNumber: number;
+  time: string; // e.g. '07:00 - 08:30'
+  title: string;
+  batch: string;
+  room: string;
+  mentor: string;
+  color?: string;
+  tag?: string;
+  classId?: string;
+}
+

@@ -3,6 +3,7 @@ import { INSTITUTION_INFO } from '../data/mockData';
 import { UserProfile, UserRole } from '../types';
 import {
   Building2,
+  Calendar,
   CalendarCheck,
   BookOpen,
   GraduationCap,
@@ -61,6 +62,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           { id: 'classes', label: 'Classes', icon: Layers },
           { id: 'attendance', label: 'Attendance', icon: CalendarCheck },
           { id: 'hifz', label: 'Hifz Records', icon: BookOpen },
+          { id: 'events', label: 'Events & Programs', icon: Calendar },
           { id: 'reports', label: 'Reports', icon: FileText },
         ];
       case 'USTHAD':
@@ -70,6 +72,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           { id: 'students', label: 'My Students', icon: GraduationCap },
           { id: 'attendance', label: 'Attendance', icon: CalendarCheck },
           { id: 'hifz', label: 'Hifz Tracker', icon: BookOpen },
+          { id: 'events', label: 'Events & Programs', icon: Calendar },
           { id: 'reports', label: 'Reports', icon: FileText },
         ];
       case 'STUDENT':
@@ -77,6 +80,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           { id: 'dashboard', label: 'My Learning', icon: BookOpen },
           { id: 'hifz', label: 'Sabq & Manzil', icon: Sparkles },
           { id: 'attendance', label: 'Attendance', icon: CalendarCheck },
+          { id: 'events', label: 'College Events', icon: Calendar },
           { id: 'reports', label: 'My Progress', icon: FileText },
         ];
       case 'PARENT':
@@ -84,6 +88,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           { id: 'dashboard', label: 'Child Portal', icon: HeartHandshake },
           { id: 'hifz', label: 'Academic Records', icon: BookOpen },
           { id: 'attendance', label: 'Attendance', icon: CalendarCheck },
+          { id: 'events', label: 'College Events', icon: Calendar },
           { id: 'reports', label: 'Progress Reports', icon: FileText },
         ];
     }

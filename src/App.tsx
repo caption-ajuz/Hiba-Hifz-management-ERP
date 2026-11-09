@@ -43,6 +43,7 @@ import { TeacherManagement } from './components/TeacherManagement';
 import { ClassManagement } from './components/ClassManagement';
 import { CampusManagement } from './components/CampusManagement';
 import { ReportsModule } from './components/ReportsModule';
+import { EventsModule } from './components/EventsModule';
 
 // Modals
 import { RoleSwitcherModal } from './components/RoleSwitcherModal';
@@ -382,6 +383,9 @@ export default function App() {
             currentUser={currentUser}
             onOpenIdCard={handleOpenIdCard}
             onAddStudent={handleAddStudent}
+            onUpdateStudent={handleStudentUpdated}
+            onDeleteStudent={(id) => setStudents((prev) => prev.filter((s) => s.id !== id))}
+            onAddClass={(newC) => setClasses((prev) => [...prev, newC])}
             onRefreshStudents={async () => {
               const latest = await api.getStudents();
               if (latest && latest.length > 0) setStudents(latest);
@@ -417,8 +421,16 @@ export default function App() {
             teachers={teachers}
             students={students}
             currentUser={currentUser}
+            onAddClass={(newC) => setClasses((prev) => [...prev, newC])}
+            onRefreshClasses={async () => {
+              const latest = await api.getClasses();
+              if (latest && latest.length > 0) setClasses(latest);
+            }}
           />
         );
+
+      case 'events':
+        return <EventsModule currentUser={currentUser} />;
 
       case 'reports':
         return (
@@ -527,6 +539,7 @@ export default function App() {
       <TimetableModal
         isOpen={isTimetableOpen}
         onClose={() => setIsTimetableOpen(false)}
+        currentUser={currentUser}
       />
 
       <FeedbackModal

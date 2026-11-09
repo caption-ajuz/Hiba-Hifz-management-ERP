@@ -17,6 +17,8 @@ import {
   AlertCircle,
   CheckCircle2,
   Lock,
+  Edit2,
+  Trash2,
 } from 'lucide-react';
 
 interface TeacherManagementProps {
@@ -43,6 +45,24 @@ export const TeacherManagement: React.FC<TeacherManagementProps> = ({
   const [newPasswordInput, setNewPasswordInput] = useState('');
   const [resetMessage, setResetMessage] = useState<string | null>(null);
 
+  // Edit Usthad State
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null);
+  const [editFullName, setEditFullName] = useState('');
+  const [editArabicTitle, setEditArabicTitle] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editQualification, setEditQualification] = useState('');
+  const [editExperienceYears, setEditExperienceYears] = useState(5);
+  const [editSpecialization, setEditSpecialization] = useState('');
+  const [editAccountStatus, setEditAccountStatus] = useState<'Active' | 'On Leave'>('Active');
+  const [editClassIds, setEditClassIds] = useState<string[]>([]);
+  const [editCampusId, setEditCampusId] = useState('campus-main');
+
+  // Delete Usthad State
+  const [teacherToDelete, setTeacherToDelete] = useState<Teacher | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   // New Usthad Form State
   const [fullName, setFullName] = useState('');
   const [arabicTitle, setArabicTitle] = useState('');
@@ -59,6 +79,66 @@ export const TeacherManagement: React.FC<TeacherManagementProps> = ({
   const [accountStatus, setAccountStatus] = useState<'Active' | 'On Leave'>('Active');
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const openEditModal = (teacher: Teacher) => {
+    setEditingTeacher(teacher);
+    setEditFullName(teacher.fullName);
+    setEditArabicTitle(teacher.arabicTitle || '');
+    setEditPhone(teacher.phone);
+    setEditEmail(teacher.email);
+    setEditQualification(teacher.qualification);
+    setEditExperienceYears(teacher.experienceYears);
+    setEditSpecialization(teacher.specialization);
+    setEditAccountStatus(teacher.accountStatus);
+    setEditClassIds(teacher.assignedClassIds || []);
+    setEditCampusId(teacher.assignedCampusId || 'campus-main');
+    setFormError(null);
+    setShowEditModal(true);
+  };
+
+  const handleUpdateTeacher = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTeacher) return;
+    setIsSubmitting(true);
+    setFormError(null);
+
+    try {
+      const updates = {
+        fullName: editFullName,
+        arabicTitle: editArabicTitle,
+        phone: editPhone,
+        email: editEmail,
+        qualification: editQualification,
+        experienceYears: Number(editExperienceYears),
+        specialization: editSpecialization,
+        accountStatus: editAccountStatus,
+        assignedClassIds: editClassIds,
+        assignedCampusId: editCampusId,
+      };
+
+      await api.updateTeacher(editingTeacher.id, updates);
+      setShowEditModal(false);
+      if (onRefreshTeachers) onRefreshTeachers();
+    } catch (err: any) {
+      setFormError(err.message || 'Failed to update faculty profile');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteTeacher = async () => {
+    if (!teacherToDelete) return;
+    setIsDeleting(true);
+    try {
+      await api.deleteTeacher(teacherToDelete.id);
+      setTeacherToDelete(null);
+      if (onRefreshTeachers) onRefreshTeachers();
+    } catch (err: any) {
+      alert(`Failed to delete teacher: ${err.message}`);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const filteredTeachers = teachers.filter((t) => {
     if (searchQuery.trim()) {
@@ -277,24 +357,41 @@ export const TeacherManagement: React.FC<TeacherManagementProps> = ({
                 </div>
               </div>
 
-              <div className="pt-3 border-t border-slate-100 text-[11px] flex items-center justify-between">
-                <span className="text-slate-400 truncate max-w-[150px]">
+              <div className="pt-3 border-t border-slate-100 text-[11px] flex items-center justify-between gap-2">
+                <span className="text-slate-400 truncate max-w-[120px]">
                   {teacher.specialization.split(',')[0]}
                 </span>
 
                 {currentUser.role === 'SUPER_ADMIN' && (
-                  <button
-                    onClick={() => {
-                      setSelectedTeacherForReset(teacher);
-                      setNewPasswordInput('');
-                      setShowResetModal(true);
-                    }}
-                    className="text-emerald-700 hover:text-emerald-900 font-semibold cursor-pointer inline-flex items-center gap-1 hover:underline"
-                    title="Reset Login Password"
-                  >
-                    <KeyRound className="w-3.5 h-3.5" />
-                    <span>Reset Pass</span>
-                  </button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      onClick={() => {
+                        setSelectedTeacherForReset(teacher);
+                        setNewPasswordInput('');
+                        setShowResetModal(true);
+                      }}
+                      className="text-emerald-700 hover:text-emerald-900 font-semibold cursor-pointer inline-flex items-center gap-1 hover:underline px-1.5 py-1 rounded hover:bg-emerald-50"
+                      title="Reset Login Password"
+                    >
+                      <KeyRound className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Pass</span>
+                    </button>
+                    <button
+                      onClick={() => openEditModal(teacher)}
+                      className="text-slate-600 hover:text-emerald-700 font-semibold cursor-pointer inline-flex items-center gap-1 hover:underline p-1 rounded hover:bg-slate-100"
+                      title="Edit Usthad Profile"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                      <span>Edit</span>
+                    </button>
+                    <button
+                      onClick={() => setTeacherToDelete(teacher)}
+                      className="text-slate-400 hover:text-rose-600 font-semibold cursor-pointer inline-flex items-center gap-1 hover:underline p-1 rounded hover:bg-rose-50"
+                      title="Delete Usthad Account"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -582,6 +679,244 @@ export const TeacherManagement: React.FC<TeacherManagementProps> = ({
                 </div>
               </form>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Edit Usthad Modal */}
+      {showEditModal && editingTeacher && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-emerald-950 text-white">
+              <div className="flex items-center gap-2">
+                <Edit2 className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-sm sm:text-base font-bold">Edit Usthad Faculty Profile</h3>
+              </div>
+              <button
+                onClick={() => setShowEditModal(false)}
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateTeacher} className="p-6 space-y-3.5 text-xs overflow-y-auto">
+              {formError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{formError}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Teacher ID
+                  </label>
+                  <input
+                    disabled
+                    type="text"
+                    value={editingTeacher.teacherId}
+                    className="w-full px-3 py-2 bg-slate-100 border border-slate-200 rounded-lg text-slate-500 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Account Status *
+                  </label>
+                  <select
+                    value={editAccountStatus}
+                    onChange={(e) => setEditAccountStatus(e.target.value as any)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-medium"
+                  >
+                    <option value="Active">Active</option>
+                    <option value="On Leave">On Leave</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Full Name (English) *
+                  </label>
+                  <input
+                    required
+                    type="text"
+                    value={editFullName}
+                    onChange={(e) => setEditFullName(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Honorific / Arabic Title
+                  </label>
+                  <input
+                    type="text"
+                    value={editArabicTitle}
+                    onChange={(e) => setEditArabicTitle(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-arabic"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Contact Phone *
+                  </label>
+                  <input
+                    required
+                    type="text"
+                    value={editPhone}
+                    onChange={(e) => setEditPhone(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Email Address *
+                  </label>
+                  <input
+                    required
+                    type="email"
+                    value={editEmail}
+                    onChange={(e) => setEditEmail(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Assigned Campus
+                </label>
+                <select
+                  value={editCampusId}
+                  onChange={(e) => setEditCampusId(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-medium"
+                >
+                  {campuses.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} ({c.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Assigned Classes (Select all that apply)
+                </label>
+                <div className="grid grid-cols-2 gap-2 p-2 bg-slate-50 border border-slate-200 rounded-lg">
+                  {classes.map((cls) => {
+                    const isChecked = editClassIds.includes(cls.id);
+                    return (
+                      <label key={cls.id} className="flex items-center gap-2 cursor-pointer text-xs">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => {
+                            setEditClassIds((prev) =>
+                              prev.includes(cls.id) ? prev.filter((id) => id !== cls.id) : [...prev, cls.id]
+                            );
+                          }}
+                          className="rounded text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <span className="truncate">{cls.name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Sanad & Qualifications
+                </label>
+                <input
+                  type="text"
+                  value={editQualification}
+                  onChange={(e) => setEditQualification(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Experience (Years)
+                  </label>
+                  <input
+                    type="number"
+                    value={editExperienceYears}
+                    onChange={(e) => setEditExperienceYears(Number(e.target.value))}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Specialization Focus
+                  </label>
+                  <input
+                    type="text"
+                    value={editSpecialization}
+                    onChange={(e) => setEditSpecialization(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowEditModal(false)}
+                  className="px-4 py-2 text-slate-600 bg-slate-100 rounded-lg font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="px-5 py-2 font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5"
+                >
+                  {isSubmitting ? 'Saving...' : 'Save Profile Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {teacherToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl border border-slate-200 animate-fade-in">
+            <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <div className="text-center">
+              <h3 className="text-base font-bold text-slate-900">Delete Usthad Faculty?</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Are you sure you want to permanently delete <strong>{teacherToDelete.fullName}</strong> ({teacherToDelete.teacherId}) and revoke their login credentials?
+              </p>
+            </div>
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                onClick={() => setTeacherToDelete(null)}
+                className="flex-1 py-2 text-xs font-semibold text-slate-600 bg-slate-100 rounded-xl hover:bg-slate-200"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteTeacher}
+                disabled={isDeleting}
+                className="flex-1 py-2 text-xs font-bold text-white bg-rose-600 rounded-xl hover:bg-rose-700 flex items-center justify-center gap-1.5"
+              >
+                {isDeleting ? 'Deleting...' : 'Delete Account'}
+              </button>
+            </div>
           </div>
         </div>
       )}

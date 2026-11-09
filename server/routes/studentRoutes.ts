@@ -258,13 +258,26 @@ router.put('/:id', authenticate, async (req: AuthRequest, res: Response) => {
   }
 });
 
-// DELETE /api/students/:id - Super Admin only
-router.delete('/:id', authenticate, authorize('SUPER_ADMIN'), async (req: AuthRequest, res: Response) => {
+// DELETE /api/students/:id - Super Admin or assigned Usthad
+router.delete('/:id', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
+    const user = req.user!;
     const existing = await Student.findOne({ id });
     if (!existing) {
       return res.status(404).json({ success: false, error: 'Student not found' });
+    }
+
+    if (user.role === 'USTHAD') {
+      const isAssigned =
+        (user.assignedClassIds && user.assignedClassIds.includes(existing.classId)) ||
+        existing.assignedTeacherId === user.id;
+      if (!isAssigned) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access forbidden: You can only delete students in your assigned classes.',
+        });
+      }
     }
 
     if (existing.photoPublicId) {
@@ -272,6 +285,9 @@ router.delete('/:id', authenticate, authorize('SUPER_ADMIN'), async (req: AuthRe
     }
 
     await Student.deleteOne({ id });
+    const { User } = await import('../models/User');
+    await User.deleteOne({ $or: [{ id }, { referenceId: existing.admissionNumber }, { studentId: id }] });
+
     await logAuditEvent('STUDENT_DELETE', req.user, 'Student', id, { name: existing.fullName });
 
     return res.json({ success: true, message: 'Student record deleted successfully' });
@@ -279,6 +295,7 @@ router.delete('/:id', authenticate, authorize('SUPER_ADMIN'), async (req: AuthRe
     return res.status(500).json({ success: false, error: 'Failed to delete student' });
   }
 });
+
 
 // POST /api/students/import-csv - Reliable CSV Import with validation and duplicate detection
 router.post('/import-csv', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async (req: AuthRequest, res: Response) => {

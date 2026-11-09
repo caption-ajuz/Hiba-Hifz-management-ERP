@@ -55,8 +55,8 @@ router.get('/:id', authenticate, async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/classes - Create new class (SUPER_ADMIN only)
-router.post('/', authenticate, authorize('SUPER_ADMIN'), async (req: AuthRequest, res: Response) => {
+// POST /api/classes - Create new class (SUPER_ADMIN or USTHAD)
+router.post('/', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async (req: AuthRequest, res: Response) => {
   try {
     const parse = classSchema.safeParse(req.body);
     if (!parse.success) {
@@ -67,19 +67,30 @@ router.post('/', authenticate, authorize('SUPER_ADMIN'), async (req: AuthRequest
     }
 
     const data = parse.data;
+    const user = req.user!;
     const classId = data.id || `batch-${Date.now().toString(36)}`;
+
+    // If Usthad, default usthadId to own id if not specified
+    const targetUsthadId = user.role === 'USTHAD' ? (data.usthadId || user.id) : data.usthadId;
 
     const newClass = await ClassBatch.create({
       ...data,
       id: classId,
+      usthadId: targetUsthadId,
       totalStudents: 0,
     });
 
-    // Also update Teacher's assignedClassIds if not already present
+    // Update Teacher's assignedClassIds
     await Teacher.updateOne(
-      { id: data.usthadId },
+      { id: targetUsthadId },
       { $addToSet: { assignedClassIds: classId } }
     );
+
+    // If user is USTHAD, also ensure req.user assignedClassIds updated in session / User model
+    if (user.role === 'USTHAD') {
+      const { User } = await import('../models/User');
+      await User.updateOne({ id: user.id }, { $addToSet: { assignedClassIds: classId } });
+    }
 
     await logAuditEvent('CLASS_CREATE', req.user, 'ClassBatch', classId, {
       name: newClass.name,
@@ -94,13 +105,21 @@ router.post('/', authenticate, authorize('SUPER_ADMIN'), async (req: AuthRequest
   }
 });
 
-// PUT /api/classes/:id - Update class (SUPER_ADMIN only)
-router.put('/:id', authenticate, authorize('SUPER_ADMIN'), async (req: AuthRequest, res: Response) => {
+// PUT /api/classes/:id - Update class (SUPER_ADMIN or USTHAD for assigned batch)
+router.put('/:id', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
+    const user = req.user!;
     const existing = await ClassBatch.findOne({ id });
     if (!existing) {
       return res.status(404).json({ success: false, error: 'Class not found' });
+    }
+
+    if (user.role === 'USTHAD') {
+      const isAssigned = user.assignedClassIds && user.assignedClassIds.includes(id);
+      if (!isAssigned && existing.usthadId !== user.id) {
+        return res.status(403).json({ success: false, error: 'Access forbidden: You can only edit your assigned classes.' });
+      }
     }
 
     const updated = await ClassBatch.findOneAndUpdate({ id }, { $set: req.body }, { new: true });
@@ -119,10 +138,23 @@ router.put('/:id', authenticate, authorize('SUPER_ADMIN'), async (req: AuthReque
   }
 });
 
-// DELETE /api/classes/:id - Super Admin only
-router.delete('/:id', authenticate, authorize('SUPER_ADMIN'), async (req: AuthRequest, res: Response) => {
+// DELETE /api/classes/:id - Super Admin or assigned Usthad (with 0 students check)
+router.delete('/:id', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
+    const user = req.user!;
+    const existing = await ClassBatch.findOne({ id });
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Class not found' });
+    }
+
+    if (user.role === 'USTHAD') {
+      const isAssigned = user.assignedClassIds && user.assignedClassIds.includes(id);
+      if (!isAssigned && existing.usthadId !== user.id) {
+        return res.status(403).json({ success: false, error: 'Access forbidden: You can only delete your assigned classes.' });
+      }
+    }
+
     const studentsInClass = await Student.countDocuments({ classId: id });
     if (studentsInClass > 0) {
       return res.status(400).json({
