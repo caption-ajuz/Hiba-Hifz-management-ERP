@@ -46,7 +46,6 @@ import { ReportsModule } from './components/ReportsModule';
 import { EventsModule } from './components/EventsModule';
 
 // Modals
-import { RoleSwitcherModal } from './components/RoleSwitcherModal';
 import { AddHifzRecordModal } from './components/AddHifzRecordModal';
 import { StudentIdCardModal } from './components/StudentIdCardModal';
 import { TimetableModal } from './components/TimetableModal';
@@ -82,7 +81,6 @@ export default function App() {
   const [announcements, setAnnouncements] = useState<Announcement[]>(MOCK_ANNOUNCEMENTS);
 
   // Modals state
-  const [isRoleSwitcherOpen, setIsRoleSwitcherOpen] = useState<boolean>(false);
   const [isAddHifzOpen, setIsAddHifzOpen] = useState<boolean>(false);
   const [isIdCardOpen, setIsIdCardOpen] = useState<boolean>(false);
   const [idCardStudent, setIdCardStudent] = useState<Student>(MOCK_STUDENTS[4]); // default to Mohammed Ajash
@@ -453,7 +451,6 @@ export default function App() {
         currentUser={currentUser}
         currentTab={currentTab}
         onTabChange={setCurrentTab}
-        onOpenRoleSwitcher={() => setIsRoleSwitcherOpen(true)}
         onOpenAttendance={() => setCurrentTab('attendance')}
         onOpenAddHifz={() => {
           if (currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'USTHAD') {
@@ -498,14 +495,7 @@ export default function App() {
               onClick={handleLogout}
               className="text-emerald-400 hover:text-emerald-300 font-semibold cursor-pointer"
             >
-              Log Out to Campus Screen
-            </button>
-            <span>·</span>
-            <button
-              onClick={() => setIsRoleSwitcherOpen(true)}
-              className="text-slate-300 hover:text-white cursor-pointer"
-            >
-              Switch Role
+              Sign Out / Lock Session
             </button>
             <span className="hidden sm:inline">·</span>
             <span className="hidden sm:inline font-mono">HYBA v1.0</span>
@@ -514,13 +504,6 @@ export default function App() {
       </footer>
 
       {/* Modals */}
-      <RoleSwitcherModal
-        isOpen={isRoleSwitcherOpen}
-        onClose={() => setIsRoleSwitcherOpen(false)}
-        currentUser={currentUser}
-        onSelectUser={handleSelectUser}
-        onLogout={handleLogout}
-      />
 
       <AddHifzRecordModal
         isOpen={isAddHifzOpen}

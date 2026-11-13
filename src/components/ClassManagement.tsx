@@ -185,7 +185,6 @@ export const ClassManagement: React.FC<ClassManagementProps> = ({
         {displayClasses.map((cls) => {
           const mentor = teachers.find((t) => t.id === cls.usthadId);
           const enrolledCount = students.filter((s) => s.classId === cls.id).length;
-          const capacityPercent = Math.round((enrolledCount / cls.capacity) * 100);
           const isMyBatch = isUsthad && currentUser.assignedClassIds?.includes(cls.id);
 
           return (
@@ -228,20 +227,15 @@ export const ClassManagement: React.FC<ClassManagementProps> = ({
                 </div>
               )}
 
-              {/* Strength & Capacity */}
-              <div className="space-y-1.5 text-xs">
-                <div className="flex justify-between font-medium">
-                  <span className="text-slate-500">Student Enrollment</span>
-                  <span className="font-mono font-bold text-slate-900 tabular-nums">
-                    {enrolledCount} / {cls.capacity} Seats ({capacityPercent}%)
-                  </span>
+              {/* Student Enrollment */}
+              <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs">
+                <div className="flex items-center gap-2">
+                  <Users className="w-4 h-4 text-emerald-700" />
+                  <span className="text-slate-600 font-medium">Student Enrollment</span>
                 </div>
-                <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-emerald-600 rounded-full transition-all"
-                    style={{ width: `${Math.min(100, capacityPercent)}%` }}
-                  ></div>
-                </div>
+                <span className="font-mono font-bold text-slate-900 bg-white px-2.5 py-1 rounded-lg border border-slate-200 tabular-nums">
+                  {enrolledCount} {enrolledCount === 1 ? 'Student' : 'Students'}
+                </span>
               </div>
 
               <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
@@ -353,27 +347,15 @@ export const ClassManagement: React.FC<ClassManagementProps> = ({
                 </div>
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">
-                    Seat Capacity
+                    Academic Year
                   </label>
                   <input
-                    type="number"
-                    value={capacity}
-                    onChange={(e) => setCapacity(Number(e.target.value))}
+                    type="text"
+                    value={academicYear}
+                    onChange={(e) => setAcademicYear(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-mono"
                   />
                 </div>
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  Academic Year
-                </label>
-                <input
-                  type="text"
-                  value={academicYear}
-                  onChange={(e) => setAcademicYear(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-mono"
-                />
               </div>
 
               <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
@@ -478,27 +460,15 @@ export const ClassManagement: React.FC<ClassManagementProps> = ({
                 </div>
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">
-                    Seat Capacity
+                    Academic Year
                   </label>
                   <input
-                    type="number"
-                    value={editCapacity}
-                    onChange={(e) => setEditCapacity(Number(e.target.value))}
+                    type="text"
+                    value={editAcademicYear}
+                    onChange={(e) => setEditAcademicYear(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-mono"
                   />
                 </div>
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  Academic Year
-                </label>
-                <input
-                  type="text"
-                  value={editAcademicYear}
-                  onChange={(e) => setEditAcademicYear(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-mono"
-                />
               </div>
 
               <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">

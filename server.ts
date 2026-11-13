@@ -24,7 +24,6 @@ import uploadRoutes from './server/routes/uploadRoutes';
 import healthRoutes from './server/routes/healthRoutes';
 import announcementRoutes from './server/routes/announcementRoutes';
 import evaluationRoutes from './server/routes/evaluationRoutes';
-import envDownloadRoutes from './server/routes/envDownloadRoutes';
 import campusRoutes from './server/routes/campusRoutes';
 import eventRoutes from './server/routes/eventRoutes';
 import timetableRoutes from './server/routes/timetableRoutes';
@@ -59,7 +58,6 @@ async function startServer() {
   app.use('/api/health', healthRoutes);
   app.use('/api/announcements', announcementRoutes);
   app.use('/api/evaluations', evaluationRoutes);
-  app.use('/api/download-env', envDownloadRoutes);
   app.use('/api/events', eventRoutes);
   app.use('/api/timetable', timetableRoutes);
 
@@ -83,7 +81,14 @@ async function startServer() {
   });
 
   const isProduction = process.env.NODE_ENV === 'production';
-  const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+  // Parse port from CLI flags (--port <number>) or use 3000 for local dev to avoid port 8080 collision with internal proxy
+  const portArgIndex = process.argv.indexOf('--port');
+  let port = 3000;
+  if (portArgIndex !== -1 && process.argv[portArgIndex + 1]) {
+    port = parseInt(process.argv[portArgIndex + 1], 10);
+  } else if (isProduction && process.env.PORT) {
+    port = parseInt(process.env.PORT, 10);
+  }
 
   if (!isProduction) {
     // Development mode: Mount Vite dev server middleware

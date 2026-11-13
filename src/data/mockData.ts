@@ -10,13 +10,13 @@ import {
 } from '../types';
 
 export const INSTITUTION_INFO = {
-  name: "Markazul Hidayathil Islamiyya",
-  arabicName: "مركز الهداية الإسلامية",
+  name: "Markazul Hidaya Kombam",
+  arabicName: "مركز الهداية الإسلامية - كومبم",
   department: "Tahfeezul Quran & Islamic Studies Academy",
   address: "Hidaya nagar, Kombam, Kodakkad (PO), Mannarkkad, Palakkad, Kerala 678583",
   shortAddress: "Kombam, Mannarkkad, Palakkad",
   logoUrl: "/assets/aistudio/__Hidaya_Updates_01__20261021_215417_1e0cd263.jpg",
-  campusBannerUrl: "/assets/aistudio/20261108_111844_2_12947e14.jpg",
+  campusBannerUrl: "/assets/aistudio/20261110_070149_0e1de496.jpg",
   phone: "+91 4924 222123",
   email: "hifz@markazulhidaya.edu.in",
   affiliation: "Affiliated to Markaz Hifz Examination Board",

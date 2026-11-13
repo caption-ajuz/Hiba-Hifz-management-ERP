@@ -95,20 +95,24 @@ export const StudentIdCardModal: React.FC<StudentIdCardModalProps> = ({
             {/* Details Table */}
             <div className="p-4 mx-4 my-3 bg-slate-50/80 rounded-xl border border-slate-200/80 text-xs space-y-1.5">
               <div className="flex justify-between py-0.5">
-                <span className="text-slate-400 font-medium">Branch</span>
-                <span className="text-slate-900 font-semibold">Tahfeezul Quran</span>
+                <span className="text-slate-400 font-medium">Register No</span>
+                <span className="text-slate-900 font-bold font-mono">KIAYSCH024</span>
+              </div>
+              <div className="flex justify-between py-0.5">
+                <span className="text-slate-400 font-medium">Department</span>
+                <span className="text-slate-900 font-semibold text-right">Chemistry (Aided) & Tahfeez</span>
               </div>
               <div className="flex justify-between py-0.5">
                 <span className="text-slate-400 font-medium">Batch</span>
-                <span className="text-slate-900 font-semibold">Hifz Batch A</span>
-              </div>
-              <div className="flex justify-between py-0.5">
-                <span className="text-slate-400 font-medium">Academic Year</span>
-                <span className="text-slate-900 font-semibold font-mono">2026 - 2027</span>
+                <span className="text-slate-900 font-semibold">2024 - 2027</span>
               </div>
               <div className="flex justify-between py-0.5">
                 <span className="text-slate-400 font-medium">Roll No.</span>
-                <span className="text-slate-900 font-bold font-mono">#{student.rollNumber}</span>
+                <span className="text-slate-900 font-bold font-mono">#{student.rollNumber} (Adm: {student.admissionNumber})</span>
+              </div>
+              <div className="flex justify-between py-0.5">
+                <span className="text-slate-400 font-medium">Blood Group</span>
+                <span className="text-rose-600 font-bold font-mono">O +ve</span>
               </div>
               <div className="flex justify-between py-0.5">
                 <span className="text-slate-400 font-medium">Status</span>
@@ -129,7 +133,7 @@ export const StudentIdCardModal: React.FC<StudentIdCardModalProps> = ({
                 ))}
               </div>
               <span className="text-[9px] font-mono text-slate-400 mt-0.5">
-                *MH-2026-{student.admissionNumber}-HIFZ*
+                *KIAY-2026-{student.admissionNumber}-CHEM*
               </span>
             </div>
 
@@ -137,8 +141,8 @@ export const StudentIdCardModal: React.FC<StudentIdCardModalProps> = ({
             <div className="px-6 pb-4 pt-2 flex items-center justify-between text-[10px] text-slate-500 border-t border-slate-100 mt-1">
               <span>Card Valid: 2026-2027</span>
               <div className="text-right">
-                <div className="font-arabic font-bold text-emerald-950 text-xs">عبد الوهاب</div>
-                <div className="font-semibold text-slate-700">Mudir / Principal</div>
+                <div className="font-semibold text-slate-800">Principal & Mudir</div>
+                <div className="text-[9px] text-emerald-800 font-medium">Markazul Hidaya Kombam / HYBA</div>
               </div>
             </div>
 

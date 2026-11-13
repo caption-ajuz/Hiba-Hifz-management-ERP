@@ -28,7 +28,6 @@ interface NavbarProps {
   currentUser: UserProfile;
   currentTab: string;
   onTabChange: (tab: string) => void;
-  onOpenRoleSwitcher: () => void;
   onOpenAttendance: () => void;
   onOpenAddHifz: () => void;
   onOpenIdCard: () => void;
@@ -41,7 +40,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentUser,
   currentTab,
   onTabChange,
-  onOpenRoleSwitcher,
   onOpenAttendance,
   onOpenAddHifz,
   onOpenIdCard,
@@ -250,11 +248,10 @@ export const Navbar: React.FC<NavbarProps> = ({
               {/* Minimal Database & Real-Time Status Indicator (Phase 5) */}
               <DatabaseStatusIndicator userRole={currentUser.role} />
 
-              {/* Profile & Role Switcher Trigger Button */}
-              <button
-                onClick={onOpenRoleSwitcher}
-                className="flex items-center gap-2 p-1 sm:px-2.5 sm:py-1.5 rounded-xl border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-all cursor-pointer bg-white"
-                title="Switch Profile / Role"
+              {/* Authenticated User Profile Badge (Locked to authenticated account) */}
+              <div
+                className="flex items-center gap-2 p-1 sm:px-2.5 sm:py-1.5 rounded-xl border border-slate-200 bg-white"
+                title={`Signed in as ${currentUser.fullName} (${getRoleDisplayName(currentUser.role)})`}
               >
                 <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full overflow-hidden border border-slate-200 bg-slate-100 shrink-0">
                   <img
@@ -272,8 +269,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     {currentUser.referenceId || currentUser.username}
                   </div>
                 </div>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400 hidden sm:block" />
-              </button>
+              </div>
 
               {/* Logout button (Desktop) */}
               <button
@@ -396,16 +392,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <span>Faculty Feedback Surveys</span>
                 </button>
 
-                <button
-                  onClick={() => {
-                    onOpenRoleSwitcher();
-                    setIsMobileMenuOpen(false);
-                  }}
-                  className="w-full flex items-center gap-3 px-3 py-2 text-xs font-bold text-emerald-800 bg-emerald-50 rounded-xl hover:bg-emerald-100"
-                >
-                  <Users className="w-4 h-4 text-emerald-700" />
-                  <span>Manage Profiles & Roles</span>
-                </button>
               </div>
             </div>
 
@@ -429,36 +415,38 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       )}
 
-      {/* Mobile Bottom Navigation Bar (High Priority Thumb-Navigation) */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 shadow-lg px-2 py-1 flex items-center justify-around h-14">
-        {mobileBottomTabs.map((item) => {
-          const Icon = item.icon;
-          const isActive = currentTab === item.id;
-          return (
-            <button
-              key={item.id}
-              onClick={() => onTabChange(item.id)}
-              className={`flex flex-col items-center justify-center py-1 px-2 rounded-lg cursor-pointer transition-colors flex-1 ${
-                isActive ? 'text-emerald-700 font-bold' : 'text-slate-500 hover:text-slate-900'
-              }`}
-            >
-              <Icon className={`w-4 h-4 ${isActive ? 'stroke-[2.5]' : ''}`} />
-              <span className="text-[10px] mt-0.5 tracking-tight truncate max-w-[64px]">
-                {item.label}
-              </span>
-            </button>
-          );
-        })}
+      {/* Mobile Bottom Navigation Bar (For Admin and Teachers - Student & Parent portals use their dedicated bottom nav) */}
+      {currentUser.role !== 'STUDENT' && currentUser.role !== 'PARENT' && (
+        <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 shadow-lg px-2 py-1 flex items-center justify-around h-14">
+          {mobileBottomTabs.map((item) => {
+            const Icon = item.icon;
+            const isActive = currentTab === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => onTabChange(item.id)}
+                className={`flex flex-col items-center justify-center py-1 px-2 rounded-lg cursor-pointer transition-colors flex-1 ${
+                  isActive ? 'text-emerald-700 font-bold' : 'text-slate-500 hover:text-slate-900'
+                }`}
+              >
+                <Icon className={`w-4 h-4 ${isActive ? 'stroke-[2.5]' : ''}`} />
+                <span className="text-[10px] mt-0.5 tracking-tight truncate max-w-[64px]">
+                  {item.label}
+                </span>
+              </button>
+            );
+          })}
 
-        {/* More tab button */}
-        <button
-          onClick={() => setIsMobileMenuOpen(true)}
-          className="flex flex-col items-center justify-center py-1 px-2 rounded-lg cursor-pointer text-slate-500 hover:text-slate-900 flex-1"
-        >
-          <Menu className="w-4 h-4" />
-          <span className="text-[10px] mt-0.5 tracking-tight">More</span>
-        </button>
-      </nav>
+          {/* More tab button */}
+          <button
+            onClick={() => setIsMobileMenuOpen(true)}
+            className="flex flex-col items-center justify-center py-1 px-2 rounded-lg cursor-pointer text-slate-500 hover:text-slate-900 flex-1"
+          >
+            <Menu className="w-4 h-4" />
+            <span className="text-[10px] mt-0.5 tracking-tight">More</span>
+          </button>
+        </nav>
+      )}
     </>
   );
 };

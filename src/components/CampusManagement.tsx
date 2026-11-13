@@ -400,7 +400,7 @@ export const CampusManagement: React.FC<CampusManagementProps> = ({
                             </div>
                             <div className="text-right">
                               <span className="font-mono font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200/60">
-                                {enrolledCount} / {cls.capacity}
+                                {enrolledCount} {enrolledCount === 1 ? 'Student' : 'Students'}
                               </span>
                             </div>
                           </div>

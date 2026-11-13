@@ -1386,27 +1386,15 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
                 </div>
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">
-                    Seat Capacity
+                    Academic Year
                   </label>
                   <input
-                    type="number"
-                    value={batchCapacity}
-                    onChange={(e) => setBatchCapacity(Number(e.target.value))}
+                    type="text"
+                    value={batchAcademicYear}
+                    onChange={(e) => setBatchAcademicYear(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-mono"
                   />
                 </div>
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  Academic Year
-                </label>
-                <input
-                  type="text"
-                  value={batchAcademicYear}
-                  onChange={(e) => setBatchAcademicYear(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-mono"
-                />
               </div>
 
               <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
