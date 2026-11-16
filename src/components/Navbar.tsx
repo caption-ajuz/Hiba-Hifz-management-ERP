@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { INSTITUTION_INFO } from '../data/mockData';
-import { UserProfile, UserRole } from '../types';
+import { Campus, UserProfile, UserRole } from '../types';
 import {
   Building2,
   Calendar,
@@ -13,19 +13,21 @@ import {
   Clock,
   IdCard,
   MessageSquare,
-  ChevronDown,
   LogOut,
   Menu,
   X,
   Sparkles,
-  Shield,
+  ShieldCheck,
   HeartHandshake,
   Landmark,
+  KeyRound,
+  Plus,
 } from 'lucide-react';
 import { DatabaseStatusIndicator } from './DatabaseStatusIndicator';
 
 interface NavbarProps {
   currentUser: UserProfile;
+  assignedCampus?: Campus;
   currentTab: string;
   onTabChange: (tab: string) => void;
   onOpenAttendance: () => void;
@@ -33,11 +35,14 @@ interface NavbarProps {
   onOpenIdCard: () => void;
   onOpenTimetable: () => void;
   onOpenFeedback: () => void;
+  onOpenChangePassword?: () => void;
+  onOpenAddCampus?: () => void;
   onLogout: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
   currentUser,
+  assignedCampus,
   currentTab,
   onTabChange,
   onOpenAttendance,
@@ -45,16 +50,23 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenIdCard,
   onOpenTimetable,
   onOpenFeedback,
+  onOpenChangePassword,
+  onOpenAddCampus,
   onLogout,
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
 
   const getNavLinks = () => {
     switch (currentUser.role) {
-      case 'SUPER_ADMIN':
+      case 'HYBA_SUPER_ADMIN':
+        return [
+          { id: 'dashboard', label: 'Platform Overview', icon: ShieldCheck },
+          { id: 'campuses', label: 'Campuses & Mudeers', icon: Landmark },
+          { id: 'reports', label: 'Platform Reports', icon: FileText },
+        ];
+      case 'MUDEER':
         return [
           { id: 'dashboard', label: 'Overview', icon: Building2 },
-          { id: 'campuses', label: 'Campuses', icon: Landmark },
           { id: 'students', label: 'Students', icon: GraduationCap },
           { id: 'teachers', label: 'Teachers', icon: Users },
           { id: 'classes', label: 'Classes', icon: Layers },
@@ -96,8 +108,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const getRoleDisplayName = (role: UserRole) => {
     switch (role) {
-      case 'SUPER_ADMIN':
-        return 'Mudir (Admin)';
+      case 'HYBA_SUPER_ADMIN':
+        return 'HYBA Super Admin';
+      case 'MUDEER':
+        return 'Mudeer (Campus Admin)';
       case 'USTHAD':
         return 'Usthad';
       case 'STUDENT':
@@ -109,7 +123,9 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const getRoleBadgeColor = (role: UserRole) => {
     switch (role) {
-      case 'SUPER_ADMIN':
+      case 'HYBA_SUPER_ADMIN':
+        return 'bg-slate-900 text-amber-300 border-amber-400/60';
+      case 'MUDEER':
         return 'bg-amber-100 text-amber-900 border-amber-200';
       case 'USTHAD':
         return 'bg-emerald-100 text-emerald-900 border-emerald-200';
@@ -120,28 +136,39 @@ export const Navbar: React.FC<NavbarProps> = ({
     }
   };
 
-  // Mobile Bottom Navigation items (Top 4 tabs + More)
   const mobileBottomTabs = navLinks.slice(0, 4);
+
+  const headerSubtitle =
+    currentUser.role === 'HYBA_SUPER_ADMIN'
+      ? 'Platform Command · Multi-Campus'
+      : currentUser.role === 'MUDEER' && assignedCampus
+      ? assignedCampus.name
+      : 'Markazul Hidayathil Islamiyya';
 
   return (
     <>
-      {/* Top Navigation Bar */}
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80">
-        {/* Desktop Top Strip (hidden on mobile to prevent clutter!) */}
+        {/* Desktop Top Strip */}
         <div className="hidden md:flex bg-emerald-950 text-emerald-100 text-[11px] px-6 py-1.5 items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="font-semibold text-white tracking-wide">{INSTITUTION_INFO.name}</span>
-            <span className="text-emerald-400 font-arabic text-xs">({INSTITUTION_INFO.arabicName})</span>
+            <span className="font-semibold text-white tracking-wide">
+              {currentUser.role === 'MUDEER' && assignedCampus ? assignedCampus.name : INSTITUTION_INFO.name}
+            </span>
+            <span className="text-emerald-400 font-arabic text-xs">
+              ({currentUser.role === 'MUDEER' && assignedCampus?.arabicName ? assignedCampus.arabicName : INSTITUTION_INFO.arabicName})
+            </span>
             <span className="text-emerald-300/80">· {INSTITUTION_INFO.shortAddress}</span>
           </div>
           <div className="flex items-center gap-4">
-            <button
-              onClick={onOpenTimetable}
-              className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer text-emerald-200"
-            >
-              <Clock className="w-3.5 h-3.5 text-emerald-300" />
-              <span>Daily Timetable</span>
-            </button>
+            {currentUser.role !== 'HYBA_SUPER_ADMIN' && (
+              <button
+                onClick={onOpenTimetable}
+                className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer text-emerald-200"
+              >
+                <Clock className="w-3.5 h-3.5 text-emerald-300" />
+                <span>Daily Timetable</span>
+              </button>
+            )}
             {currentUser.role === 'STUDENT' && (
               <button
                 onClick={onOpenIdCard}
@@ -151,17 +178,28 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span>Student ID Card</span>
               </button>
             )}
-            <button
-              onClick={onOpenFeedback}
-              className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer text-emerald-200"
-            >
-              <MessageSquare className="w-3.5 h-3.5 text-emerald-300" />
-              <span>Feedback Survey</span>
-            </button>
+            {currentUser.role !== 'HYBA_SUPER_ADMIN' && (
+              <button
+                onClick={onOpenFeedback}
+                className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer text-emerald-200"
+              >
+                <MessageSquare className="w-3.5 h-3.5 text-emerald-300" />
+                <span>Feedback Survey</span>
+              </button>
+            )}
+            {onOpenChangePassword && (
+              <button
+                onClick={onOpenChangePassword}
+                className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer text-amber-200 font-semibold"
+              >
+                <KeyRound className="w-3.5 h-3.5 text-amber-300" />
+                <span>Change Password</span>
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Main Bar (Clean single-row on mobile, full width on desktop) */}
+        {/* Main Bar */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-14 sm:h-16 gap-3">
             {/* Zone 1: Logo and HYBA branding */}
@@ -194,8 +232,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                       {getRoleDisplayName(currentUser.role)}
                     </span>
                   </div>
-                  <div className="hidden sm:block text-[11px] text-slate-500 font-medium truncate max-w-[200px]">
-                    Markazul Hidayathil Islamiyya
+                  <div className="hidden sm:block text-[11px] text-slate-500 font-medium truncate max-w-[220px]">
+                    {headerSubtitle}
                   </div>
                 </div>
               </button>
@@ -223,10 +261,19 @@ export const Navbar: React.FC<NavbarProps> = ({
               })}
             </nav>
 
-            {/* Zone 3: Actions & Profile Switcher */}
+            {/* Zone 3: Actions & User Info */}
             <div className="flex items-center gap-2">
-              {/* Desktop Quick Actions for Teachers/Admin */}
-              {(currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'USTHAD') && (
+              {currentUser.role === 'HYBA_SUPER_ADMIN' && onOpenAddCampus && (
+                <button
+                  onClick={onOpenAddCampus}
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-xs transition-colors cursor-pointer whitespace-nowrap"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Campus</span>
+                </button>
+              )}
+
+              {(currentUser.role === 'MUDEER' || currentUser.role === 'USTHAD') && (
                 <div className="hidden sm:flex items-center gap-2">
                   <button
                     onClick={onOpenAttendance}
@@ -245,10 +292,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </div>
               )}
 
-              {/* Minimal Database & Real-Time Status Indicator (Phase 5) */}
               <DatabaseStatusIndicator userRole={currentUser.role} />
 
-              {/* Authenticated User Profile Badge (Locked to authenticated account) */}
               <div
                 className="flex items-center gap-2 p-1 sm:px-2.5 sm:py-1.5 rounded-xl border border-slate-200 bg-white"
                 title={`Signed in as ${currentUser.fullName} (${getRoleDisplayName(currentUser.role)})`}
@@ -265,13 +310,12 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <div className="text-xs font-bold text-slate-900 truncate max-w-[120px]">
                     {currentUser.fullName}
                   </div>
-                  <div className="text-[10px] text-slate-500 font-mono">
-                    {currentUser.referenceId || currentUser.username}
+                  <div className="text-[10px] text-slate-500 font-mono truncate max-w-[120px]">
+                    {currentUser.username || currentUser.referenceId}
                   </div>
                 </div>
               </div>
 
-              {/* Logout button (Desktop) */}
               <button
                 onClick={onLogout}
                 className="hidden sm:flex items-center justify-center w-8 h-8 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
@@ -280,7 +324,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <LogOut className="w-4 h-4" />
               </button>
 
-              {/* Mobile Menu Drawer Toggle */}
               <button
                 onClick={() => setIsMobileMenuOpen(true)}
                 className="lg:hidden flex items-center justify-center w-9 h-9 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
@@ -293,41 +336,37 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </header>
 
-      {/* Mobile Slide-Over Drawer for Secondary Actions */}
+      {/* Mobile Slide-Over Drawer */}
       {isMobileMenuOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
-          {/* Backdrop */}
           <div
             className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity"
             onClick={() => setIsMobileMenuOpen(false)}
           ></div>
 
-          {/* Drawer content */}
           <div className="fixed inset-y-0 right-0 w-full max-w-xs bg-white shadow-2xl flex flex-col justify-between overflow-y-auto">
             <div>
-              {/* Drawer Header */}
               <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-emerald-700 text-white flex items-center justify-center font-bold text-xs">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-700 text-white flex items-center justify-center font-bold text-xs shrink-0">
                     HYBA
                   </div>
-                  <div>
-                    <div className="text-xs font-bold text-slate-900">{currentUser.fullName}</div>
-                    <div className="text-[10px] text-slate-500">{currentUser.email}</div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-slate-900 truncate">{currentUser.fullName}</div>
+                    <div className="text-[10px] text-slate-500 truncate">{currentUser.email}</div>
                   </div>
                 </div>
                 <button
                   onClick={() => setIsMobileMenuOpen(false)}
-                  className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-200"
+                  className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-200 cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              {/* Navigation Items */}
               <div className="p-3 space-y-1">
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 px-3 py-1">
-                  Campus Navigation
+                  {currentUser.role === 'HYBA_SUPER_ADMIN' ? 'Platform Navigation' : 'Campus Navigation'}
                 </div>
                 {navLinks.map((link) => {
                   const Icon = link.icon;
@@ -352,21 +391,36 @@ export const Navbar: React.FC<NavbarProps> = ({
                 })}
               </div>
 
-              {/* Utility Tools */}
               <div className="p-3 border-t border-slate-100 space-y-1">
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 px-3 py-1">
-                  Utilities & Tools
+                  Account & Tools
                 </div>
-                <button
-                  onClick={() => {
-                    onOpenTimetable();
-                    setIsMobileMenuOpen(false);
-                  }}
-                  className="w-full flex items-center gap-3 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-xl"
-                >
-                  <Clock className="w-4 h-4 text-emerald-600" />
-                  <span>Daily Timetable (Hours 1–5)</span>
-                </button>
+
+                {onOpenChangePassword && (
+                  <button
+                    onClick={() => {
+                      onOpenChangePassword();
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-xs font-semibold text-amber-900 bg-amber-50/60 hover:bg-amber-100/70 rounded-xl cursor-pointer"
+                  >
+                    <KeyRound className="w-4 h-4 text-amber-700" />
+                    <span>Change Account Password</span>
+                  </button>
+                )}
+
+                {currentUser.role !== 'HYBA_SUPER_ADMIN' && (
+                  <button
+                    onClick={() => {
+                      onOpenTimetable();
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-xl cursor-pointer"
+                  >
+                    <Clock className="w-4 h-4 text-emerald-600" />
+                    <span>Daily Timetable (Hours 1–5)</span>
+                  </button>
+                )}
 
                 {currentUser.role === 'STUDENT' && (
                   <button
@@ -374,28 +428,28 @@ export const Navbar: React.FC<NavbarProps> = ({
                       onOpenIdCard();
                       setIsMobileMenuOpen(false);
                     }}
-                    className="w-full flex items-center gap-3 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-xl"
+                    className="w-full flex items-center gap-3 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-xl cursor-pointer"
                   >
                     <IdCard className="w-4 h-4 text-emerald-600" />
                     <span>Digital Student ID Card</span>
                   </button>
                 )}
 
-                <button
-                  onClick={() => {
-                    onOpenFeedback();
-                    setIsMobileMenuOpen(false);
-                  }}
-                  className="w-full flex items-center gap-3 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-xl"
-                >
-                  <MessageSquare className="w-4 h-4 text-emerald-600" />
-                  <span>Faculty Feedback Surveys</span>
-                </button>
-
+                {currentUser.role !== 'HYBA_SUPER_ADMIN' && (
+                  <button
+                    onClick={() => {
+                      onOpenFeedback();
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-xl cursor-pointer"
+                  >
+                    <MessageSquare className="w-4 h-4 text-emerald-600" />
+                    <span>Faculty Feedback Surveys</span>
+                  </button>
+                )}
               </div>
             </div>
 
-            {/* Logout Footer */}
             <div className="p-4 border-t border-slate-100 bg-slate-50">
               <button
                 onClick={() => {
@@ -415,7 +469,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       )}
 
-      {/* Mobile Bottom Navigation Bar (For Admin and Teachers - Student & Parent portals use their dedicated bottom nav) */}
+      {/* Mobile Bottom Navigation Bar */}
       {currentUser.role !== 'STUDENT' && currentUser.role !== 'PARENT' && (
         <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 shadow-lg px-2 py-1 flex items-center justify-around h-14">
           {mobileBottomTabs.map((item) => {
@@ -437,7 +491,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             );
           })}
 
-          {/* More tab button */}
           <button
             onClick={() => setIsMobileMenuOpen(true)}
             className="flex flex-col items-center justify-center py-1 px-2 rounded-lg cursor-pointer text-slate-500 hover:text-slate-900 flex-1"

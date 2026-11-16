@@ -77,13 +77,14 @@ export async function seedDatabaseIfEmpty() {
           role: userObj.role,
           fullName: userObj.fullName,
           arabicName: userObj.arabicName,
-          username: userObj.username || key,
-          email: userObj.email,
+          username: (userObj.username || key).toLowerCase(),
+          email: userObj.email.toLowerCase(),
           password: userObj.password || 'password123',
           phone: userObj.phone,
           avatar: userObj.avatar,
           title: userObj.title,
           referenceId: userObj.referenceId,
+          campusId: userObj.campusId,
           studentId: userObj.studentId,
           linkedStudentIds: userObj.linkedStudentIds,
           assignedClassIds: userObj.assignedClassIds,
@@ -91,6 +92,49 @@ export async function seedDatabaseIfEmpty() {
         });
       }
       console.log(`[Seed] Seeded ${Object.keys(MOCK_USERS).length} users.`);
+    } else {
+      // Ensure HYBA Super Admin account exists and migrate any legacy SUPER_ADMIN to MUDEER
+      await User.updateMany(
+        { role: 'SUPER_ADMIN' as any },
+        { $set: { role: 'MUDEER', campusId: 'campus-main' } }
+      );
+      const hybaSuperExists = await User.findOne({ role: 'HYBA_SUPER_ADMIN' });
+      if (!hybaSuperExists) {
+        const cfg = MOCK_USERS.hybaSuperAdmin;
+        await User.create({
+          id: cfg.id,
+          role: cfg.role,
+          fullName: cfg.fullName,
+          arabicName: cfg.arabicName,
+          username: (cfg.username || 'Admin.Hyba_Campus.portal').toLowerCase(),
+          email: cfg.email.toLowerCase(),
+          password: cfg.password,
+          phone: cfg.phone,
+          avatar: cfg.avatar,
+          title: cfg.title,
+          referenceId: cfg.referenceId,
+          isActive: true,
+        });
+      }
+      const cityMudeerExists = await User.findOne({ id: 'usr_mudeer_city' });
+      if (!cityMudeerExists) {
+        const cityCfg = MOCK_USERS.mudeerCity;
+        await User.create({
+          id: cityCfg.id,
+          role: cityCfg.role,
+          fullName: cityCfg.fullName,
+          arabicName: cityCfg.arabicName,
+          username: (cityCfg.username || 'mudir.city').toLowerCase(),
+          email: cityCfg.email.toLowerCase(),
+          password: cityCfg.password,
+          phone: cityCfg.phone,
+          avatar: cityCfg.avatar,
+          title: cityCfg.title,
+          referenceId: cityCfg.referenceId,
+          campusId: cityCfg.campusId,
+          isActive: true,
+        });
+      }
     }
 
     // 4. Classes

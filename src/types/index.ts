@@ -1,4 +1,4 @@
-export type UserRole = 'SUPER_ADMIN' | 'USTHAD' | 'STUDENT' | 'PARENT';
+export type UserRole = 'HYBA_SUPER_ADMIN' | 'MUDEER' | 'USTHAD' | 'STUDENT' | 'PARENT';
 
 export interface UserProfile {
   id: string;
@@ -10,11 +10,13 @@ export interface UserProfile {
   password?: string;
   phone: string;
   avatar: string;
-  title?: string; // e.g. "Mudir / Head of Tahfeez", "Senior Usthad", "Student", "Parent"
+  title?: string; // e.g. "HYBA Platform Super Admin", "Mudeer (Campus Admin)", "Senior Usthad", "Student", "Parent"
   referenceId?: string; // Teacher ID, Student ID, or Admission No
+  campusId?: string; // Assigned campus ID for Mudeer, Usthad, or Student
   studentId?: string; // If student
   linkedStudentIds?: string[]; // If parent
   assignedClassIds?: string[]; // If usthad
+  mustChangePassword?: boolean; // First-login password change prompt
 }
 
 export interface Campus {
@@ -31,6 +33,10 @@ export interface Campus {
   status: 'Active' | 'Inactive';
   establishedYear?: string;
   principalName?: string;
+  mudeerUserId?: string;
+  mudeerUsername?: string;
+  mudeerEmail?: string;
+  mudeerPhone?: string;
   studentCount?: number;
   teacherCount?: number;
   classCount?: number;

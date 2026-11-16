@@ -24,13 +24,18 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({
   classes,
 }) => {
   const [reportType, setReportType] = useState<'ATTENDANCE' | 'HIFZ'>('HIFZ');
-  const [selectedClassId, setSelectedClassId] = useState<string>('batch-a');
+  const [selectedClassId, setSelectedClassId] = useState<string>(() => classes[0]?.id || 'ALL');
 
-  const classStudents = students.filter((s) => s.classId === selectedClassId);
+  const classStudents =
+    selectedClassId === 'ALL' ? students : students.filter((s) => s.classId === selectedClassId);
 
   // Stats calculation
   const totalMemorizedAll = students.reduce((acc, s) => acc + s.completedJuzList.length, 0);
-  const avgJuzPerStudent = (totalMemorizedAll / (students.length || 1)).toFixed(1);
+  const avgJuzPerStudent = students.length > 0 ? (totalMemorizedAll / students.length).toFixed(1) : '0.0';
+  const avgAttendanceRate =
+    students.length > 0
+      ? (students.reduce((acc, s) => acc + (s.attendanceRate || 0), 0) / students.length).toFixed(1)
+      : '0.0';
 
   const topStudents = [...students].sort(
     (a, b) => b.completedJuzList.length - a.completedJuzList.length
@@ -122,6 +127,7 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({
             onChange={(e) => setSelectedClassId(e.target.value)}
             className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-800 focus:outline-hidden"
           >
+            <option value="ALL">All Batches ({students.length} Students)</option>
             {classes.map((cls) => (
               <option key={cls.id} value={cls.id}>
                 {cls.name}
@@ -138,7 +144,9 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({
           <div className="text-2xl font-bold font-mono text-emerald-800 mt-1 tabular-nums">
             {avgJuzPerStudent} Juz / Student
           </div>
-          <div className="text-[11px] text-emerald-700 mt-1">Across 3 Active Hifz Batches</div>
+          <div className="text-[11px] text-emerald-700 mt-1">
+            Across {classes.length} Active {classes.length === 1 ? 'Batch' : 'Batches'}
+          </div>
         </div>
 
         <div className="bg-white p-4.5 rounded-2xl border border-slate-200 shadow-xs">
@@ -146,15 +154,17 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({
           <div className="text-2xl font-bold font-mono text-slate-900 mt-1 tabular-nums">
             {totalMemorizedAll} Finished Juz
           </div>
-          <div className="text-[11px] text-slate-500 mt-1">Cumulative Institutional Milestone</div>
+          <div className="text-[11px] text-slate-500 mt-1">Cumulative Milestone</div>
         </div>
 
         <div className="bg-white p-4.5 rounded-2xl border border-slate-200 shadow-xs">
           <div className="text-xs text-slate-500 font-medium">Average Attendance</div>
           <div className="text-2xl font-bold font-mono text-emerald-700 mt-1 tabular-nums">
-            95.8%
+            {avgAttendanceRate}%
           </div>
-          <div className="text-[11px] text-emerald-600 mt-1">Above institutional threshold (90%)</div>
+          <div className="text-[11px] text-emerald-600 mt-1">
+            {students.length > 0 ? 'Institutional threshold: 90%' : 'No attendance data recorded'}
+          </div>
         </div>
       </div>
 

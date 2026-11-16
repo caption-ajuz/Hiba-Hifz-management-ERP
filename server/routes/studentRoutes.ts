@@ -1,8 +1,18 @@
 import { Router, Response } from 'express';
 import { Student } from '../models/Student';
+import { User } from '../models/User';
+import { ClassBatch } from '../models/ClassBatch';
 import { deleteFromCloudinary } from '../config/cloudinary';
 import { emitStudentUpdated } from '../socket';
 import { authenticate, AuthRequest, authorize, logAuditEvent } from '../middleware/auth';
+import { isMongoReady, getRuntimeDb, saveRuntimeDb } from '../config/runtimeStore';
+import {
+  resolveEffectiveAssignedClassIds,
+  resolveCampusBatchFromValue,
+  normalizeDobString,
+  buildDefaultStudentPassword,
+  ensureStudentUserAccount,
+} from '../utils/accessHelpers';
 import { z } from 'zod';
 
 const router = Router();
@@ -23,7 +33,7 @@ const studentSchema = z.object({
   admissionDate: z.string().optional(),
   campusId: z.string().default('campus-main'),
   classId: z.string().min(1),
-  assignedTeacherId: z.string().min(1),
+  assignedTeacherId: z.string().optional(),
   accountStatus: z.enum(['Active', 'On Leave', 'Completed']).default('Active'),
   currentJuz: z.number().min(1).max(30).default(1),
   completedJuzList: z.array(z.number()).default([]),
@@ -31,25 +41,109 @@ const studentSchema = z.object({
   attendanceRate: z.number().default(95),
 });
 
-// GET /api/students - List all or filtered with strict RBAC scoping
+function getRowField(row: Record<string, any>, candidates: string[]): string {
+  const entries = Object.entries(row || {});
+  for (const cand of candidates) {
+    if (row[cand] !== undefined && row[cand] !== null && String(row[cand]).trim() !== '') {
+      return String(row[cand]).trim();
+    }
+    const lowerCand = cand.toLowerCase().replace(/[\s_-]+/g, '');
+    const found = entries.find(([k]) => k.toLowerCase().replace(/[\s_-]+/g, '') === lowerCand);
+    if (found && found[1] !== undefined && found[1] !== null && String(found[1]).trim() !== '') {
+      return String(found[1]).trim();
+    }
+  }
+  return '';
+}
+
+// GET /api/students - List all or filtered with strict RBAC & campus scoping
 router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const user = req.user!;
     const { classId, campusId, search, status, page, limit } = req.query;
+    const pageNum = Math.max(1, parseInt(page as string) || 1);
+    const limitNum = Math.min(200, Math.max(1, parseInt(limit as string) || 100));
+    const skip = (pageNum - 1) * limitNum;
+
+    const effectiveClassIds =
+      user.role === 'USTHAD' ? await resolveEffectiveAssignedClassIds(user) : [];
+
+    if (!isMongoReady()) {
+      const db = getRuntimeDb();
+      let list = [...db.students];
+
+      if (status) list = list.filter((s) => s.accountStatus === status);
+
+      if (user.role === 'STUDENT') {
+        list = list.filter((s) => s.id === (user.studentId || '__none__'));
+      } else if (user.role === 'PARENT') {
+        const linked = user.linkedStudentIds || [];
+        list = list.filter((s) => linked.includes(s.id));
+      } else if (user.role === 'USTHAD') {
+        if (user.campusId) list = list.filter((s) => s.campusId === user.campusId);
+        if (classId) {
+          if (!effectiveClassIds.includes(String(classId))) {
+            return res.status(403).json({
+              success: false,
+              error: 'Access forbidden: You may only view students in your assigned classes.',
+            });
+          }
+          list = list.filter((s) => s.classId === String(classId));
+        } else {
+          list = list.filter(
+            (s) =>
+              effectiveClassIds.includes(s.classId) ||
+              s.assignedTeacherId === user.id ||
+              (user.referenceId && s.assignedTeacherId === user.referenceId)
+          );
+        }
+      } else if (user.role === 'MUDEER') {
+        if (user.campusId) list = list.filter((s) => s.campusId === user.campusId);
+        if (classId) list = list.filter((s) => s.classId === String(classId));
+      } else {
+        // HYBA_SUPER_ADMIN
+        if (campusId) list = list.filter((s) => s.campusId === String(campusId));
+        if (classId) list = list.filter((s) => s.classId === String(classId));
+      }
+
+      if (search && typeof search === 'string') {
+        const q = search.trim().toLowerCase();
+        list = list.filter(
+          (s) =>
+            (s.fullName || '').toLowerCase().includes(q) ||
+            (s.admissionNumber || '').toLowerCase().includes(q) ||
+            (s.arabicName || '').toLowerCase().includes(q) ||
+            (s.parentName || '').toLowerCase().includes(q)
+        );
+      }
+
+      list.sort((a, b) => (a.rollNumber || 0) - (b.rollNumber || 0));
+      const total = list.length;
+      const sliced = list.slice(skip, skip + limitNum);
+
+      return res.json({
+        success: true,
+        data: sliced,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages: Math.ceil(total / limitNum),
+        },
+      });
+    }
 
     const query: any = {};
     if (status) query.accountStatus = status;
-    if (campusId) query.campusId = campusId;
 
-    // RBAC Scoping
     if (user.role === 'STUDENT') {
       query.id = user.studentId || '__none__';
     } else if (user.role === 'PARENT') {
       query.id = { $in: user.linkedStudentIds || [] };
     } else if (user.role === 'USTHAD') {
+      if (user.campusId) query.campusId = user.campusId;
       if (classId) {
-        // Verify Usthad has assignment to this class
-        const allowed = user.assignedClassIds?.includes(String(classId));
+        const allowed = effectiveClassIds.includes(String(classId));
         if (!allowed) {
           return res.status(403).json({
             success: false,
@@ -58,15 +152,21 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
         }
         query.classId = String(classId);
       } else {
-        // Default to all classes assigned to the Usthad
-        query.$or = [
-          { classId: { $in: user.assignedClassIds || [] } },
+        const orClauses: any[] = [
+          { classId: { $in: effectiveClassIds } },
           { assignedTeacherId: user.id },
-          { assignedTeacherId: user.referenceId },
         ];
+        if (user.referenceId) {
+          orClauses.push({ assignedTeacherId: user.referenceId });
+        }
+        query.$or = orClauses;
       }
+    } else if (user.role === 'MUDEER') {
+      if (user.campusId) query.campusId = user.campusId;
+      if (classId) query.classId = classId;
     } else {
-      // SUPER_ADMIN
+      // HYBA_SUPER_ADMIN
+      if (campusId) query.campusId = campusId;
       if (classId) query.classId = classId;
     }
 
@@ -88,10 +188,6 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
         query.$or = searchCondition.$or;
       }
     }
-
-    const pageNum = Math.max(1, parseInt(page as string) || 1);
-    const limitNum = Math.min(200, Math.max(1, parseInt(limit as string) || 100));
-    const skip = (pageNum - 1) * limitNum;
 
     const [students, total] = await Promise.all([
       Student.find(query).sort({ rollNumber: 1 }).skip(skip).limit(limitNum).lean(),
@@ -128,14 +224,22 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ success: false, error: 'Access forbidden: You may only view linked children.' });
     }
 
-    const student = await Student.findOne({ id }).lean();
+    const student = isMongoReady()
+      ? await Student.findOne({ id }).lean()
+      : getRuntimeDb().students.find((s) => s.id === id);
+
     if (!student) {
       return res.status(404).json({ success: false, error: 'Student not found' });
     }
 
+    if (user.role === 'MUDEER' && user.campusId && student.campusId !== user.campusId) {
+      return res.status(403).json({ success: false, error: 'Access forbidden: Student belongs to another campus.' });
+    }
+
     if (user.role === 'USTHAD') {
+      const effectiveClassIds = await resolveEffectiveAssignedClassIds(user);
       const isAssigned =
-        (user.assignedClassIds && user.assignedClassIds.includes(student.classId)) ||
+        effectiveClassIds.includes(student.classId) ||
         student.assignedTeacherId === user.id ||
         student.assignedTeacherId === user.referenceId;
       if (!isAssigned) {
@@ -149,8 +253,8 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response) => {
   }
 });
 
-// POST /api/students - Create new student (SUPER_ADMIN or USTHAD for assigned classes)
-router.post('/', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async (req: AuthRequest, res: Response) => {
+// POST /api/students - Create new student (MUDEER for own campus, or USTHAD for assigned classes)
+router.post('/', authenticate, authorize('MUDEER', 'USTHAD'), async (req: AuthRequest, res: Response) => {
   try {
     const user = req.user!;
     const parse = studentSchema.safeParse(req.body);
@@ -162,22 +266,66 @@ router.post('/', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async (req: A
     }
 
     const data = parse.data;
+    const effectiveCampusId = user.campusId || data.campusId || 'campus-main';
+    const normalizedDob = normalizeDobString(data.dateOfBirth);
+    const studentId = data.id || `std_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
-    // Usthad enrollment scope check
+    if (!isMongoReady()) {
+      const db = getRuntimeDb();
+      const matchedClass = resolveCampusBatchFromValue(effectiveCampusId, data.classId, db.classes);
+      const resolvedClassId = matchedClass?.id || data.classId;
+
+      if (user.role === 'USTHAD') {
+        const effectiveClassIds = await resolveEffectiveAssignedClassIds(user);
+        if (!effectiveClassIds.includes(resolvedClassId)) {
+          return res.status(403).json({
+            success: false,
+            error: `Access forbidden: You may only enroll students into your assigned classes (${effectiveClassIds.join(', ')}).`,
+          });
+        }
+      }
+
+      if (db.students.some((s) => s.admissionNumber.toLowerCase() === data.admissionNumber.trim().toLowerCase())) {
+        return res.status(409).json({
+          success: false,
+          error: `A student with Admission No. ${data.admissionNumber} already exists.`,
+        });
+      }
+
+      const newStudent = {
+        ...data,
+        id: studentId,
+        dateOfBirth: normalizedDob,
+        campusId: effectiveCampusId,
+        classId: resolvedClassId,
+        assignedTeacherId: matchedClass?.usthadId || (user.role === 'USTHAD' ? user.id : data.assignedTeacherId || 'usr_teacher_01'),
+      };
+      db.students.push(newStudent);
+      const accountInfo = await ensureStudentUserAccount(newStudent, matchedClass?.name);
+      saveRuntimeDb(db);
+      emitStudentUpdated(newStudent);
+      return res.status(201).json({
+        success: true,
+        data: newStudent,
+        studentCredentials: accountInfo,
+      });
+    }
+
+    const allClasses = await ClassBatch.find({ campusId: effectiveCampusId }).lean();
+    const matchedClass = resolveCampusBatchFromValue(effectiveCampusId, data.classId, allClasses);
+    const resolvedClassId = matchedClass?.id || data.classId;
+
     if (user.role === 'USTHAD') {
-      const allowed = user.assignedClassIds && user.assignedClassIds.includes(data.classId);
-      if (!allowed) {
+      const effectiveClassIds = await resolveEffectiveAssignedClassIds(user);
+      if (!effectiveClassIds.includes(resolvedClassId)) {
         return res.status(403).json({
           success: false,
-          error: `Access forbidden: You may only enroll students into your assigned classes (${(user.assignedClassIds || []).join(', ')}).`,
+          error: `Access forbidden: You may only enroll students into your assigned classes (${effectiveClassIds.join(', ')}).`,
         });
       }
     }
 
-    const studentId = data.id || `std_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-
-    // Check unique admissionNumber
-    const existing = await Student.findOne({ admissionNumber: data.admissionNumber });
+    const existing = await Student.findOne({ admissionNumber: data.admissionNumber.trim() });
     if (existing) {
       return res.status(409).json({
         success: false,
@@ -188,40 +336,118 @@ router.post('/', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async (req: A
     const newStudent = await Student.create({
       ...data,
       id: studentId,
-      assignedTeacherId: user.role === 'USTHAD' ? user.id : data.assignedTeacherId,
+      dateOfBirth: normalizedDob,
+      campusId: effectiveCampusId,
+      classId: resolvedClassId,
+      assignedTeacherId: matchedClass?.usthadId || (user.role === 'USTHAD' ? user.id : data.assignedTeacherId || 'usr_teacher_01'),
     });
+
+    const accountInfo = await ensureStudentUserAccount(newStudent, matchedClass?.name);
 
     emitStudentUpdated(newStudent);
     await logAuditEvent('STUDENT_CREATE', user, 'Student', newStudent.id, {
       fullName: newStudent.fullName,
       admissionNumber: newStudent.admissionNumber,
       classId: newStudent.classId,
+      campusId: effectiveCampusId,
     });
 
-    return res.status(201).json({ success: true, data: newStudent });
+    return res.status(201).json({
+      success: true,
+      data: newStudent,
+      studentCredentials: accountInfo,
+    });
   } catch (err: any) {
     console.error('[Students] Create error:', err);
     return res.status(500).json({ success: false, error: 'Failed to create student' });
   }
 });
 
-// PUT /api/students/:id - Update student (SUPER_ADMIN, assigned USTHAD, or STUDENT updating self photo)
+// PUT /api/students/:id - Update student (MUDEER within campus, assigned USTHAD, or STUDENT self photo)
 router.put('/:id', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const user = req.user!;
     const { id } = req.params;
+
+    if (user.role === 'HYBA_SUPER_ADMIN') {
+      return res.status(403).json({
+        success: false,
+        error: 'HYBA Super Admin manages campuses and Mudeers; student edits are handled by Campus Mudeer.',
+      });
+    }
+
+    const effectiveClassIds =
+      user.role === 'USTHAD' ? await resolveEffectiveAssignedClassIds(user) : [];
+
+    if (!isMongoReady()) {
+      const db = getRuntimeDb();
+      const idx = db.students.findIndex((s) => s.id === id);
+      if (idx === -1) return res.status(404).json({ success: false, error: 'Student not found' });
+      const existing = db.students[idx];
+
+      if (user.role === 'MUDEER' && user.campusId && existing.campusId !== user.campusId) {
+        return res.status(403).json({ success: false, error: 'Access forbidden: Student belongs to another campus.' });
+      }
+      if (user.role === 'STUDENT') {
+        if (user.studentId !== id) {
+          return res.status(403).json({ success: false, error: 'Access forbidden: You can only edit your own profile.' });
+        }
+        const allowedKeys = ['photo', 'photoPublicId', 'phone'];
+        const filteredBody: any = {};
+        for (const k of allowedKeys) {
+          if (req.body[k] !== undefined) filteredBody[k] = req.body[k];
+        }
+        req.body = filteredBody;
+      } else if (user.role === 'PARENT') {
+        return res.status(403).json({ success: false, error: 'Access forbidden: Parents have read-only access.' });
+      } else if (user.role === 'USTHAD') {
+        const isAssigned =
+          effectiveClassIds.includes(existing.classId) ||
+          existing.assignedTeacherId === user.id ||
+          existing.assignedTeacherId === user.referenceId;
+        if (!isAssigned) {
+          return res.status(403).json({ success: false, error: 'Access forbidden: You can only update assigned students.' });
+        }
+      }
+
+      const payload = { ...req.body };
+      if (user.role === 'MUDEER' && user.campusId) {
+        payload.campusId = user.campusId;
+      }
+
+      // Automatically synchronize assignedTeacherId when batch/classId changes
+      if (payload.classId) {
+        const targetClass = resolveCampusBatchFromValue(existing.campusId, payload.classId, db.classes);
+        if (targetClass) {
+          payload.classId = targetClass.id;
+          payload.assignedTeacherId = targetClass.usthadId;
+        }
+        const linkedUser = db.users.find((u) => u.studentId === id || u.referenceId === existing.admissionNumber);
+        if (linkedUser) {
+          linkedUser.assignedClassIds = [payload.classId];
+          if (targetClass?.name) linkedUser.title = `Student · ${targetClass.name}`;
+        }
+      }
+
+      db.students[idx] = { ...existing, ...payload };
+      saveRuntimeDb(db);
+      emitStudentUpdated(db.students[idx]);
+      return res.json({ success: true, data: db.students[idx] });
+    }
 
     const existing = await Student.findOne({ id });
     if (!existing) {
       return res.status(404).json({ success: false, error: 'Student not found' });
     }
 
-    // Role verification
+    if (user.role === 'MUDEER' && user.campusId && existing.campusId !== user.campusId) {
+      return res.status(403).json({ success: false, error: 'Access forbidden: Student belongs to another campus.' });
+    }
+
     if (user.role === 'STUDENT') {
       if (user.studentId !== id) {
         return res.status(403).json({ success: false, error: 'Access forbidden: You can only edit your own profile.' });
       }
-      // Students can ONLY update photo and phone
       const allowedKeys = ['photo', 'photoPublicId', 'phone'];
       const filteredBody: any = {};
       for (const k of allowedKeys) {
@@ -232,7 +458,7 @@ router.put('/:id', authenticate, async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ success: false, error: 'Access forbidden: Parents have read-only access.' });
     } else if (user.role === 'USTHAD') {
       const isAssigned =
-        (user.assignedClassIds && user.assignedClassIds.includes(existing.classId)) ||
+        effectiveClassIds.includes(existing.classId) ||
         existing.assignedTeacherId === user.id ||
         existing.assignedTeacherId === user.referenceId;
       if (!isAssigned) {
@@ -240,16 +466,33 @@ router.put('/:id', authenticate, async (req: AuthRequest, res: Response) => {
       }
     }
 
-    // Clean up old photo if replaced
     if (req.body.photoPublicId && existing.photoPublicId && req.body.photoPublicId !== existing.photoPublicId) {
       await deleteFromCloudinary(existing.photoPublicId);
     }
 
-    const updated = await Student.findOneAndUpdate({ id }, { $set: req.body }, { new: true });
+    const payload = { ...req.body };
+    if (user.role === 'MUDEER' && user.campusId) {
+      payload.campusId = user.campusId;
+    }
+
+    if (payload.classId) {
+      const campusClasses = await ClassBatch.find({ campusId: existing.campusId }).lean();
+      const targetClass = resolveCampusBatchFromValue(existing.campusId, payload.classId, campusClasses);
+      if (targetClass) {
+        payload.classId = targetClass.id;
+        payload.assignedTeacherId = targetClass.usthadId;
+        await User.updateOne(
+          { $or: [{ studentId: id }, { referenceId: existing.admissionNumber }] },
+          { $set: { assignedClassIds: [targetClass.id], title: `Student · ${targetClass.name}` } }
+        );
+      }
+    }
+
+    const updated = await Student.findOneAndUpdate({ id }, { $set: payload }, { new: true });
 
     if (updated) {
       emitStudentUpdated(updated);
-      await logAuditEvent('STUDENT_UPDATE', user, 'Student', id, req.body);
+      await logAuditEvent('STUDENT_UPDATE', user, 'Student', id, payload);
     }
 
     return res.json({ success: true, data: updated });
@@ -258,20 +501,57 @@ router.put('/:id', authenticate, async (req: AuthRequest, res: Response) => {
   }
 });
 
-// DELETE /api/students/:id - Super Admin or assigned Usthad
-router.delete('/:id', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async (req: AuthRequest, res: Response) => {
+// DELETE /api/students/:id - MUDEER (within campus) or assigned USTHAD
+router.delete('/:id', authenticate, authorize('MUDEER', 'USTHAD'), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const user = req.user!;
+    const effectiveClassIds =
+      user.role === 'USTHAD' ? await resolveEffectiveAssignedClassIds(user) : [];
+
+    if (!isMongoReady()) {
+      const db = getRuntimeDb();
+      const existing = db.students.find((s) => s.id === id);
+      if (!existing) return res.status(404).json({ success: false, error: 'Student not found' });
+
+      if (user.role === 'MUDEER' && user.campusId && existing.campusId !== user.campusId) {
+        return res.status(403).json({ success: false, error: 'Access forbidden: Student belongs to another campus.' });
+      }
+      if (user.role === 'USTHAD') {
+        const isAssigned =
+          effectiveClassIds.includes(existing.classId) ||
+          existing.assignedTeacherId === user.id ||
+          existing.assignedTeacherId === user.referenceId;
+        if (!isAssigned) {
+          return res.status(403).json({
+            success: false,
+            error: 'Access forbidden: You can only delete students in your assigned classes.',
+          });
+        }
+      }
+
+      db.students = db.students.filter((s) => s.id !== id);
+      db.users = db.users.filter(
+        (u) => u.id !== id && u.referenceId !== existing.admissionNumber && u.studentId !== id
+      );
+      saveRuntimeDb(db);
+      return res.json({ success: true, message: 'Student record deleted successfully' });
+    }
+
     const existing = await Student.findOne({ id });
     if (!existing) {
       return res.status(404).json({ success: false, error: 'Student not found' });
     }
 
+    if (user.role === 'MUDEER' && user.campusId && existing.campusId !== user.campusId) {
+      return res.status(403).json({ success: false, error: 'Access forbidden: Student belongs to another campus.' });
+    }
+
     if (user.role === 'USTHAD') {
       const isAssigned =
-        (user.assignedClassIds && user.assignedClassIds.includes(existing.classId)) ||
-        existing.assignedTeacherId === user.id;
+        effectiveClassIds.includes(existing.classId) ||
+        existing.assignedTeacherId === user.id ||
+        existing.assignedTeacherId === user.referenceId;
       if (!isAssigned) {
         return res.status(403).json({
           success: false,
@@ -285,7 +565,6 @@ router.delete('/:id', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async (r
     }
 
     await Student.deleteOne({ id });
-    const { User } = await import('../models/User');
     await User.deleteOne({ $or: [{ id }, { referenceId: existing.admissionNumber }, { studentId: id }] });
 
     await logAuditEvent('STUDENT_DELETE', req.user, 'Student', id, { name: existing.fullName });
@@ -296,9 +575,8 @@ router.delete('/:id', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async (r
   }
 });
 
-
-// POST /api/students/import-csv - Reliable CSV Import with validation and duplicate detection
-router.post('/import-csv', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async (req: AuthRequest, res: Response) => {
+// POST /api/students/import-csv - Reliable CSV Import scoped to MUDEER campus or USTHAD classes
+router.post('/import-csv', authenticate, authorize('MUDEER', 'USTHAD'), async (req: AuthRequest, res: Response) => {
   try {
     const user = req.user!;
     const { rows, isCommit } = req.body;
@@ -312,28 +590,48 @@ router.post('/import-csv', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), asy
     const duplicateRows: any[] = [];
     const failedRows: any[] = [];
 
-    // Pre-fetch all existing admission numbers and student IDs
-    const existingStudents = await Student.find().select('admissionNumber rollNumber classId id').lean();
-    const existingAdmMap = new Set(existingStudents.map((s) => s.admissionNumber.toLowerCase().trim()));
+    const existingStudents = isMongoReady()
+      ? await Student.find().select('admissionNumber rollNumber classId id').lean()
+      : getRuntimeDb().students;
+
+    const allClasses = isMongoReady()
+      ? await ClassBatch.find().lean()
+      : getRuntimeDb().classes;
+
+    const effectiveClassIds =
+      user.role === 'USTHAD' ? await resolveEffectiveAssignedClassIds(user) : [];
+
+    const existingAdmMap = new Set(
+      existingStudents.map((s: any) => String(s.admissionNumber || '').toLowerCase().trim())
+    );
     const seenBatchAdm = new Set<string>();
+    const startingRoll = existingStudents.length;
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       const rowNum = i + 1;
 
-      // Normalize fields from possible headers
-      const fullName = (row.full_name || row['Full Name'] || row.name || '').trim();
-      const admissionNumber = (row.admission_number || row.student_id || row['Admission Number'] || row['Student ID'] || '').trim();
-      const rollNumber = parseInt(row.roll_number || row.roll || row['Roll Number'] || '0') || rowNum;
-      const dob = (row.date_of_birth || row.dob || row['Date of Birth'] || '2012-01-01').trim();
-      const gender = (row.gender || row['Gender'] || 'Male').trim() === 'Female' ? 'Female' : 'Male';
-      const phone = (row.phone || row['Phone'] || '').trim();
-      const parentName = (row.parent_name || row['Parent Name'] || row.guardian || '').trim();
-      const parentPhone = (row.parent_phone || row['Parent Phone'] || phone || '').trim();
-      const campusId = (row.campus || row.campus_id || row['Campus'] || 'campus-main').trim();
-      const classId = (row.class || row.class_id || row['Class'] || 'batch-a').trim();
+      const fullName = getRowField(row, ['full_name', 'Full Name', 'student_name', 'Student Name', 'name', 'Name']);
+      const admissionNumber = getRowField(row, [
+        'admission_number',
+        'Admission Number',
+        'Admission No',
+        'admission_no',
+        'student_id',
+        'Student ID',
+        'Adm No',
+      ]);
+      const rollRaw = getRowField(row, ['roll_number', 'Roll Number', 'roll', 'Roll', 'roll_no']);
+      const rollNumber = parseInt(rollRaw || '0', 10) || startingRoll + rowNum;
+      const rawDob = getRowField(row, ['date_of_birth', 'Date of Birth', 'dob', 'DOB']);
+      const dob = normalizeDobString(rawDob);
+      const rawGender = getRowField(row, ['gender', 'Gender']);
+      const gender = rawGender.toLowerCase() === 'female' ? 'Female' : 'Male';
+      const parentName = getRowField(row, ['parent_name', 'Parent Name', 'guardian_name', 'Guardian Name', 'guardian']);
+      const parentPhone = getRowField(row, ['parent_phone', 'Parent Phone', 'phone', 'Phone', 'mobile', 'Mobile']);
+      const campusId = user.campusId || getRowField(row, ['campus_id', 'campus', 'Campus']) || 'campus-main';
+      const rawBatchValue = getRowField(row, ['batch', 'Batch', 'batch_name', 'Batch Name', 'class', 'class_id', 'Class']);
 
-      // Required field validation
       if (!fullName || !admissionNumber) {
         failedRows.push({
           rowNumber: rowNum,
@@ -344,40 +642,55 @@ router.post('/import-csv', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), asy
         continue;
       }
 
-      // Check Usthad permissions for target class
+      const matchedClass = resolveCampusBatchFromValue(campusId, rawBatchValue, allClasses);
+      if (rawBatchValue && !matchedClass) {
+        failedRows.push({
+          rowNumber: rowNum,
+          admissionNumber,
+          fullName,
+          error: `Batch '${rawBatchValue}' not recognized in campus. Use A, B, or an existing batch name.`,
+        });
+        continue;
+      }
+
+      const classId = matchedClass?.id || 'batch-a';
+
       if (user.role === 'USTHAD') {
-        const isClassAllowed = user.assignedClassIds && user.assignedClassIds.includes(classId);
+        const isClassAllowed = effectiveClassIds.includes(classId);
         if (!isClassAllowed) {
           failedRows.push({
             rowNumber: rowNum,
             admissionNumber,
             fullName,
-            error: `Class '${classId}' is outside your permitted Usthad scope.`,
+            error: `Batch '${matchedClass?.name || classId}' is outside your permitted Usthad scope.`,
           });
           continue;
         }
       }
 
-      // Check duplicate admission number in DB or current import batch
       const lowerAdm = admissionNumber.toLowerCase();
       if (existingAdmMap.has(lowerAdm) || seenBatchAdm.has(lowerAdm)) {
         duplicateRows.push({
           rowNumber: rowNum,
           admissionNumber,
           fullName,
-          error: `Admission number '${admissionNumber}' already exists in database or batch.`,
+          error: `Admission number '${admissionNumber}' already exists in database or import file.`,
         });
         continue;
       }
 
       seenBatchAdm.add(lowerAdm);
 
-      const parsedStudent = {
+      const arabicName = getRowField(row, ['arabic_name', 'Arabic Name']) || fullName;
+      const currentJuz = parseInt(getRowField(row, ['current_juz', 'Current Juz']) || '1', 10) || 1;
+      const defaultPassword = buildDefaultStudentPassword(admissionNumber, dob);
+
+      successfulRows.push({
         id: `std_csv_${Date.now()}_${i}_${Math.floor(Math.random() * 1000)}`,
         rollNumber,
         admissionNumber,
         fullName,
-        arabicName: row.arabic_name || row['Arabic Name'] || fullName,
+        arabicName,
         photo: '/assets/images/avatar_student_male_1794118079992.jpg',
         dateOfBirth: dob,
         gender,
@@ -387,26 +700,40 @@ router.post('/import-csv', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), asy
         admissionDate: new Date().toISOString().split('T')[0],
         campusId,
         classId,
-        assignedTeacherId: user.role === 'USTHAD' ? user.id : 'usr_teacher_01',
+        assignedTeacherId: matchedClass?.usthadId || (user.role === 'USTHAD' ? user.id : 'usr_teacher_01'),
         accountStatus: 'Active',
-        currentJuz: parseInt(row.current_juz || row['Current Juz'] || '1') || 1,
-        completedJuzList: [30],
-        totalMemorizedAyahs: 564,
+        currentJuz,
+        completedJuzList: [],
+        totalMemorizedAyahs: 0,
         attendanceRate: 100,
-      };
-
-      successfulRows.push(parsedStudent);
+        // Metadata stripped before DB insert
+        _batchLabel: matchedClass?.name || classId,
+        _defaultPassword: defaultPassword,
+      });
     }
 
-    // If isCommit is true and there are successful rows, insert into database
-    if (isCommit && successfulRows.length > 0) {
-      await Student.insertMany(successfulRows);
-      await logAuditEvent('CSV_STUDENT_IMPORT', user, 'Student', undefined, {
-        totalRows,
-        imported: successfulRows.length,
-        duplicates: duplicateRows.length,
-        failed: failedRows.length,
-      });
+    const studentsToPersist = successfulRows.map(({ _batchLabel, _defaultPassword, ...rest }) => rest);
+
+    if (isCommit && studentsToPersist.length > 0) {
+      if (isMongoReady()) {
+        await Student.insertMany(studentsToPersist);
+        for (const s of successfulRows) {
+          await ensureStudentUserAccount(s, s._batchLabel);
+        }
+        await logAuditEvent('CSV_STUDENT_IMPORT', user, 'Student', undefined, {
+          totalRows,
+          imported: studentsToPersist.length,
+          duplicates: duplicateRows.length,
+          failed: failedRows.length,
+        });
+      } else {
+        const db = getRuntimeDb();
+        db.students.push(...studentsToPersist);
+        for (const s of successfulRows) {
+          await ensureStudentUserAccount(s, s._batchLabel);
+        }
+        saveRuntimeDb(db);
+      }
     }
 
     return res.json({
@@ -417,8 +744,19 @@ router.post('/import-csv', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), asy
         duplicateCount: duplicateRows.length,
         failedCount: failedRows.length,
         isCommitted: Boolean(isCommit),
+        defaultPasswordRule: '<AdmissionNumber>@<YYYY-MM-DD>',
       },
-      successfulRows: isCommit ? [] : successfulRows.slice(0, 50), // preview sample
+      successfulRows: isCommit
+        ? []
+        : successfulRows.slice(0, 50).map((s) => ({
+            id: s.id,
+            admissionNumber: s.admissionNumber,
+            fullName: s.fullName,
+            dateOfBirth: s.dateOfBirth,
+            classId: s.classId,
+            batchLabel: s._batchLabel,
+            defaultPasswordPreview: s._defaultPassword,
+          })),
       duplicateRows,
       failedRows,
     });
@@ -428,39 +766,63 @@ router.post('/import-csv', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), asy
   }
 });
 
-// GET /api/students/export-csv - Role-based Student CSV Export (Never exposes credentials or hashes)
-router.get('/export/csv', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async (req: AuthRequest, res: Response) => {
+// GET /api/students/export/csv - Role-based & campus-scoped CSV Export
+router.get('/export/csv', authenticate, authorize('HYBA_SUPER_ADMIN', 'MUDEER', 'USTHAD'), async (req: AuthRequest, res: Response) => {
   try {
     const user = req.user!;
     const { campusId, classId } = req.query;
+    const effectiveClassIds =
+      user.role === 'USTHAD' ? await resolveEffectiveAssignedClassIds(user) : [];
 
-    const query: any = {};
-    if (user.role === 'USTHAD') {
-      if (classId) {
-        if (!user.assignedClassIds?.includes(String(classId))) {
-          return res.status(403).json({ success: false, error: 'Forbidden class filter.' });
+    let students: any[] = [];
+    if (!isMongoReady()) {
+      students = [...getRuntimeDb().students];
+      if (user.role === 'USTHAD') {
+        if (classId) {
+          if (!effectiveClassIds.includes(String(classId))) {
+            return res.status(403).json({ success: false, error: 'Forbidden class filter.' });
+          }
+          students = students.filter((s) => s.classId === String(classId));
+        } else {
+          students = students.filter((s) => effectiveClassIds.includes(s.classId));
         }
-        query.classId = String(classId);
+      } else if (user.role === 'MUDEER') {
+        if (user.campusId) students = students.filter((s) => s.campusId === user.campusId);
+        if (classId) students = students.filter((s) => s.classId === String(classId));
       } else {
-        query.classId = { $in: user.assignedClassIds || [] };
+        if (campusId) students = students.filter((s) => s.campusId === String(campusId));
+        if (classId) students = students.filter((s) => s.classId === String(classId));
       }
+      students.sort((a, b) => (a.rollNumber || 0) - (b.rollNumber || 0));
     } else {
-      if (campusId) query.campusId = campusId;
-      if (classId) query.classId = classId;
+      const query: any = {};
+      if (user.role === 'USTHAD') {
+        if (classId) {
+          if (!effectiveClassIds.includes(String(classId))) {
+            return res.status(403).json({ success: false, error: 'Forbidden class filter.' });
+          }
+          query.classId = String(classId);
+        } else {
+          query.classId = { $in: effectiveClassIds };
+        }
+      } else if (user.role === 'MUDEER') {
+        if (user.campusId) query.campusId = user.campusId;
+        if (classId) query.classId = classId;
+      } else {
+        if (campusId) query.campusId = campusId;
+        if (classId) query.classId = classId;
+      }
+      students = await Student.find(query).sort({ rollNumber: 1 }).lean();
     }
 
-    const students = await Student.find(query).sort({ rollNumber: 1 }).lean();
-
     const header = [
-      'student_id',
+      'admission_number',
       'full_name',
       'arabic_name',
-      'admission_number',
       'roll_number',
       'date_of_birth',
       'gender',
-      'class_id',
-      'campus_id',
+      'batch',
       'parent_name',
       'parent_phone',
       'current_juz',
@@ -470,15 +832,13 @@ router.get('/export/csv', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), asyn
 
     const rows = students.map((s) => {
       return [
-        `"${s.id}"`,
+        `"${s.admissionNumber}"`,
         `"${(s.fullName || '').replace(/"/g, '""')}"`,
         `"${(s.arabicName || '').replace(/"/g, '""')}"`,
-        `"${s.admissionNumber}"`,
         s.rollNumber,
         `"${s.dateOfBirth || ''}"`,
         `"${s.gender}"`,
         `"${s.classId}"`,
-        `"${s.campusId}"`,
         `"${(s.parentName || '').replace(/"/g, '""')}"`,
         `"${s.parentPhone || ''}"`,
         s.currentJuz || 1,
@@ -499,3 +859,4 @@ router.get('/export/csv', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), asyn
 });
 
 export default router;
+

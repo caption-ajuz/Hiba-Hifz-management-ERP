@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 
 export interface IUser extends Document {
   id: string; // custom/external id matching frontend
-  role: 'SUPER_ADMIN' | 'USTHAD' | 'STUDENT' | 'PARENT';
+  role: 'HYBA_SUPER_ADMIN' | 'MUDEER' | 'USTHAD' | 'STUDENT' | 'PARENT';
   fullName: string;
   arabicName?: string;
   username: string;
@@ -14,9 +14,11 @@ export interface IUser extends Document {
   avatarPublicId?: string;
   title?: string;
   referenceId?: string;
+  campusId?: string;
   studentId?: string;
   linkedStudentIds?: string[];
   assignedClassIds?: string[];
+  mustChangePassword?: boolean;
   isActive: boolean;
   lastLoginAt?: Date;
   comparePassword(candidate: string): Promise<boolean>;
@@ -29,7 +31,7 @@ const UserSchema = new Schema<IUser>(
     id: { type: String, required: true, unique: true, index: true },
     role: {
       type: String,
-      enum: ['SUPER_ADMIN', 'USTHAD', 'STUDENT', 'PARENT'],
+      enum: ['HYBA_SUPER_ADMIN', 'MUDEER', 'USTHAD', 'STUDENT', 'PARENT'],
       required: true,
       index: true,
     },
@@ -43,9 +45,11 @@ const UserSchema = new Schema<IUser>(
     avatarPublicId: { type: String },
     title: { type: String },
     referenceId: { type: String, index: true },
+    campusId: { type: String, index: true },
     studentId: { type: String, index: true },
     linkedStudentIds: [{ type: String }],
     assignedClassIds: [{ type: String }],
+    mustChangePassword: { type: Boolean, default: false },
     isActive: { type: Boolean, default: true },
     lastLoginAt: { type: Date },
   },

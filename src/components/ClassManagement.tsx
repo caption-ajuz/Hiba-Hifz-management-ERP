@@ -1,6 +1,12 @@
-import React, { useState } from 'react';
-import { ClassBatch, Teacher, Student, UserProfile } from '../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { ClassBatch, Teacher, Student, UserProfile, Campus } from '../types';
 import { api } from '../services/api';
+import {
+  FacultyMentorOption,
+  getFacultyDisplayList,
+  getUsthadEffectiveClassIds,
+  sortBatchesWithPriority,
+} from '../utils/batchUtils';
 import {
   Layers,
   Users,
@@ -20,6 +26,7 @@ interface ClassManagementProps {
   teachers: Teacher[];
   students: Student[];
   currentUser: UserProfile;
+  assignedCampus?: Campus;
   onAddClass?: (newClass: ClassBatch) => void;
   onRefreshClasses?: () => void;
 }
@@ -29,12 +36,37 @@ export const ClassManagement: React.FC<ClassManagementProps> = ({
   teachers,
   students,
   currentUser,
+  assignedCampus,
   onAddClass,
   onRefreshClasses,
 }) => {
-  const isSuperAdmin = currentUser.role === 'SUPER_ADMIN';
+  const isMudeer = currentUser.role === 'MUDEER';
   const isUsthad = currentUser.role === 'USTHAD';
-  const canManage = isSuperAdmin || isUsthad;
+  const canManage = isMudeer || isUsthad;
+
+  const [apiMentors, setApiMentors] = useState<FacultyMentorOption[]>([]);
+  useEffect(() => {
+    let active = true;
+    api
+      .getClassMentors(currentUser.campusId)
+      .then((list) => {
+        if (active && Array.isArray(list)) setApiMentors(list);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [currentUser.campusId, teachers.length]);
+
+  const facultyMentors = useMemo(
+    () => getFacultyDisplayList(teachers, currentUser, assignedCampus, apiMentors),
+    [teachers, currentUser, assignedCampus, apiMentors]
+  );
+
+  const usthadEffectiveClassIds = useMemo(
+    () => getUsthadEffectiveClassIds(currentUser, classes),
+    [currentUser, classes]
+  );
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -44,11 +76,11 @@ export const ClassManagement: React.FC<ClassManagementProps> = ({
 
   const [name, setName] = useState('');
   const [arabicName, setArabicName] = useState('');
-  const [usthadId, setUsthadId] = useState(teachers[0]?.id || 'usr_teacher_01');
+  const [usthadId, setUsthadId] = useState(facultyMentors[0]?.id || teachers[0]?.id || 'usr_teacher_01');
   const [roomNumber, setRoomNumber] = useState('Hall 103');
   const [capacity, setCapacity] = useState(30);
   const [academicYear, setAcademicYear] = useState('2026 - 2027');
-  const [campusId, setCampusId] = useState('campus-main');
+  const [campusId, setCampusId] = useState(currentUser.campusId || 'campus-main');
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -112,10 +144,15 @@ export const ClassManagement: React.FC<ClassManagementProps> = ({
     }
   };
 
-  // If Usthad, filter or sort to show assigned classes first
-  const displayClasses = isUsthad
-    ? classes.filter((c) => currentUser.assignedClassIds?.includes(c.id))
-    : classes;
+  // Order Batch A first, Batch B second, then others; filter for Usthad
+  const sortedClasses = useMemo(() => sortBatchesWithPriority(classes), [classes]);
+  const displayClasses = useMemo(
+    () =>
+      isUsthad
+        ? sortedClasses.filter((c) => usthadEffectiveClassIds.includes(c.id))
+        : sortedClasses,
+    [isUsthad, sortedClasses, usthadEffectiveClassIds]
+  );
 
   const handleCreateClass = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -130,7 +167,7 @@ export const ClassManagement: React.FC<ClassManagementProps> = ({
         roomNumber,
         capacity: Number(capacity),
         academicYear,
-        campusId,
+        campusId: currentUser.campusId || campusId,
       };
 
       const created = await api.createClass(payload);
@@ -183,9 +220,13 @@ export const ClassManagement: React.FC<ClassManagementProps> = ({
       {/* Classes Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {displayClasses.map((cls) => {
-          const mentor = teachers.find((t) => t.id === cls.usthadId);
+          const mentor = facultyMentors.find(
+            (t) => t.id === cls.usthadId || t.teacherId === cls.usthadId
+          );
           const enrolledCount = students.filter((s) => s.classId === cls.id).length;
-          const isMyBatch = isUsthad && currentUser.assignedClassIds?.includes(cls.id);
+          const isMyBatch =
+            (isUsthad && usthadEffectiveClassIds.includes(cls.id)) ||
+            (isMudeer && cls.usthadId === currentUser.id);
 
           return (
             <div
@@ -206,9 +247,11 @@ export const ClassManagement: React.FC<ClassManagementProps> = ({
                   </div>
                   <div className="text-xs text-emerald-700 font-arabic mt-0.5">{cls.arabicName}</div>
                 </div>
-                <span className="text-[11px] font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded shrink-0">
-                  {cls.roomNumber}
-                </span>
+                {cls.roomNumber && (
+                  <span className="text-[11px] font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded shrink-0">
+                    {cls.roomNumber}
+                  </span>
+                )}
               </div>
 
               {mentor && (
@@ -219,9 +262,18 @@ export const ClassManagement: React.FC<ClassManagementProps> = ({
                     className="w-10 h-10 rounded-full object-cover border border-slate-200 shrink-0"
                     referrerPolicy="no-referrer"
                   />
-                  <div>
-                    <div className="text-[11px] text-slate-400 font-medium">Class Mentor Usthad</div>
-                    <div className="text-xs font-bold text-slate-900">{mentor.fullName}</div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] text-slate-400 font-medium">
+                        {mentor.roleType === 'MUDEER' ? 'Class Mentor Mudeer' : 'Class Mentor Usthad'}
+                      </span>
+                      {mentor.roleType === 'MUDEER' && (
+                        <span className="text-[9px] font-bold bg-amber-100 text-amber-900 border border-amber-200 px-1.5 py-0.2 rounded">
+                          Mudeer · Faculty
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs font-bold text-slate-900 truncate">{mentor.fullName}</div>
                     <div className="text-[10px] text-emerald-700 font-mono">{mentor.teacherId}</div>
                   </div>
                 </div>
@@ -240,7 +292,7 @@ export const ClassManagement: React.FC<ClassManagementProps> = ({
 
               <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
                 <span className="font-mono text-[11px] text-slate-400">AY: {cls.academicYear}</span>
-                {canManage && (isSuperAdmin || isMyBatch) && (
+                {canManage && (isMudeer || isMyBatch) && (
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => openEditModal(cls)}
@@ -264,8 +316,8 @@ export const ClassManagement: React.FC<ClassManagementProps> = ({
         })}
       </div>
 
-      {/* Create Class Modal (Super Admin only) */}
-      {showAddModal && isSuperAdmin && (
+      {/* Create Class Modal (Mudeer or Usthad) */}
+      {showAddModal && canManage && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
           <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-emerald-950 text-white">
@@ -318,16 +370,16 @@ export const ClassManagement: React.FC<ClassManagementProps> = ({
 
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">
-                  Mentor Usthad *
+                  Mentor Faculty (Usthad / Mudeer) *
                 </label>
                 <select
                   value={usthadId}
                   onChange={(e) => setUsthadId(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-medium"
                 >
-                  {teachers.map((t) => (
+                  {facultyMentors.map((t) => (
                     <option key={t.id} value={t.id}>
-                      {t.fullName} ({t.teacherId})
+                      {t.fullName} {t.roleType === 'MUDEER' ? '(Mudeer · Campus Faculty)' : `(${t.teacherId})`}
                     </option>
                   ))}
                 </select>
@@ -431,16 +483,16 @@ export const ClassManagement: React.FC<ClassManagementProps> = ({
 
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">
-                  Mentor Usthad
+                  Mentor Faculty (Usthad / Mudeer)
                 </label>
                 <select
                   value={editUsthadId}
                   onChange={(e) => setEditUsthadId(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-medium"
                 >
-                  {teachers.map((t) => (
+                  {facultyMentors.map((t) => (
                     <option key={t.id} value={t.id}>
-                      {t.fullName} ({t.teacherId})
+                      {t.fullName} {t.roleType === 'MUDEER' ? '(Mudeer · Campus Faculty)' : `(${t.teacherId})`}
                     </option>
                   ))}
                 </select>

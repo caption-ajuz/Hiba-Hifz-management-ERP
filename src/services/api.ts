@@ -12,7 +12,6 @@ import {
   TimetableSlot,
 } from '../types';
 import {
-  MOCK_USERS,
   MOCK_STUDENTS,
   MOCK_TEACHERS,
   MOCK_CLASSES,
@@ -36,7 +35,6 @@ export const removeAuthToken = () => {
   localStorage.removeItem(TOKEN_KEY);
 };
 
-// Helper for fetch with auth headers
 async function request<T>(
   endpoint: string,
   options: RequestInit = {},
@@ -86,26 +84,11 @@ export const api = {
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Login failed');
+      const authErr = new Error(err.error || 'Login failed') as Error & { status?: number };
+      authErr.status = res.status;
+      throw authErr;
     }
 
-    const data = await res.json();
-    if (data.token) {
-      setAuthToken(data.token);
-    }
-    return data;
-  },
-
-  async switchUser(userId: string): Promise<{ token: string; user: UserProfile }> {
-    const res = await fetch('/api/auth/switch-user', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to switch profile');
-    }
     const data = await res.json();
     if (data.token) {
       setAuthToken(data.token);
@@ -120,6 +103,45 @@ export const api = {
     } catch {
       return null;
     }
+  },
+
+  async changePassword(currentPassword: string, newPassword: string): Promise<{ success: boolean; message: string }> {
+    return request<{ success: boolean; message: string }>('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+  },
+
+  async requestPasswordReset(identifier: string): Promise<{
+    maskedEmail: string;
+    maskedPhone: string;
+    fullName: string;
+    role: string;
+    expiresInSeconds: number;
+    previewOtp?: string;
+  }> {
+    return request('/api/auth/forgot-password/request', {
+      method: 'POST',
+      body: JSON.stringify({ identifier }),
+    });
+  },
+
+  async verifyResetOtp(
+    identifier: string,
+    otp: string,
+    phoneLast4: string
+  ): Promise<{ resetToken: string; expiresInSeconds: number }> {
+    return request('/api/auth/forgot-password/verify-otp', {
+      method: 'POST',
+      body: JSON.stringify({ identifier, otp, phoneLast4 }),
+    });
+  },
+
+  async confirmPasswordReset(resetToken: string, newPassword: string): Promise<{ success: boolean; message: string }> {
+    return request('/api/auth/forgot-password/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ resetToken, newPassword }),
+    });
   },
 
   // Students
@@ -164,22 +186,50 @@ export const api = {
     });
   },
 
-  // Campuses & Institutions
+  // Campuses & Mudeer Governance (HYBA_SUPER_ADMIN)
   async getCampuses(): Promise<Campus[]> {
     return request<Campus[]>('/api/campuses', {}, [
       {
         id: 'campus-main',
-        name: 'Markazul Hidayathil Islamiyya Main Campus',
-        code: 'MHI-MAIN',
-        arabicName: 'مركز الهداية الإسلامية - المقر الرئيسي',
-        address: 'Hidaya Nagar, Kombam, Kodakkad (PO), Mannarkkad, Palakkad',
+        name: 'Markazul Hidaya Kombam',
+        code: 'MHK-MAIN',
+        arabicName: 'مركز الهداية الإسلامية - كومبم',
+        address: 'Hidaya Nagar, Kombam, Kodakkad (PO), Mannarkkad, Palakkad, Kerala 678583',
         phone: '+91 4924 222123',
         email: 'hifz@markazulhidaya.edu.in',
+        logo: '/assets/aistudio/__Hidaya_Updates_01__20261021_215417_1e0cd263.jpg',
+        bannerUrl: '/assets/aistudio/20261110_070149_0e1de496.jpg',
         status: 'Active',
         establishedYear: '1994',
-        studentCount: 26,
+        principalName: 'Sheikh Dr. Abdul Wahab Al-Qasimi',
+        mudeerUserId: 'usr_admin_01',
+        mudeerUsername: 'mudir',
+        mudeerEmail: 'mudir@markazulhidaya.edu.in',
+        mudeerPhone: '+91 94471 20001',
+        studentCount: 24,
         teacherCount: 3,
         classCount: 3,
+      },
+      {
+        id: 'campus-city',
+        name: 'HYBA City Tahfeez Center',
+        code: 'HYBA-CITY',
+        arabicName: 'فرع المدينة لتحفيظ القرآن',
+        address: 'Kollamkode Bypass Road, Mannarkkad Central, Palakkad',
+        phone: '+91 4924 223400',
+        email: 'city.campus@markazulhidaya.edu.in',
+        logo: '/assets/aistudio/__Hidaya_Updates_01__20261021_215417_1e0cd263.jpg',
+        bannerUrl: '/assets/images/campus_architecture_bg_1794109156055.jpg',
+        status: 'Active',
+        establishedYear: '2021',
+        principalName: 'Usthad Hafiz Luqman Al-Bukhari',
+        mudeerUserId: 'usr_mudeer_city',
+        mudeerUsername: 'mudir.city',
+        mudeerEmail: 'city.mudir@markazulhidaya.edu.in',
+        mudeerPhone: '+91 94475 77219',
+        studentCount: 0,
+        teacherCount: 0,
+        classCount: 0,
       },
     ]);
   },
@@ -190,10 +240,10 @@ export const api = {
     );
   },
 
-  async createCampus(campus: Partial<Campus>): Promise<Campus> {
+  async createCampus(campusPayload: any): Promise<Campus> {
     return request<Campus>('/api/campuses', {
       method: 'POST',
-      body: JSON.stringify(campus),
+      body: JSON.stringify(campusPayload),
     });
   },
 
@@ -201,6 +251,25 @@ export const api = {
     return request<Campus>(`/api/campuses/${id}`, {
       method: 'PUT',
       body: JSON.stringify(updates),
+    });
+  },
+
+  async assignCampusMudeer(
+    campusId: string,
+    payload: {
+      mudeerMode: 'new' | 'existing';
+      existingTeacherId?: string;
+      mudeerName?: string;
+      mudeerArabicName?: string;
+      mudeerEmail?: string;
+      mudeerPhone?: string;
+      mudeerUsername: string;
+      mudeerPassword?: string;
+    }
+  ): Promise<Campus> {
+    return request<Campus>(`/api/campuses/${campusId}/mudeer`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
     });
   },
 
@@ -246,6 +315,15 @@ export const api = {
   async getClasses(campusId?: string): Promise<ClassBatch[]> {
     const query = campusId ? `?campusId=${encodeURIComponent(campusId)}` : '';
     return request<ClassBatch[]>(`/api/classes${query}`, {}, MOCK_CLASSES);
+  },
+
+  async getClassMentors(campusId?: string): Promise<Array<Teacher & { roleType?: 'MUDEER' | 'USTHAD' }>> {
+    const query = campusId ? `?campusId=${encodeURIComponent(campusId)}` : '';
+    return request<Array<Teacher & { roleType?: 'MUDEER' | 'USTHAD' }>>(
+      `/api/classes/mentors/list${query}`,
+      {},
+      MOCK_TEACHERS.map((t) => ({ ...t, roleType: 'USTHAD' as const }))
+    );
   },
 
   async createClass(classData: Partial<ClassBatch>): Promise<ClassBatch> {
@@ -349,7 +427,7 @@ export const api = {
     });
   },
 
-  // Health & Diagnostics (Phase 5)
+  // Health & Diagnostics
   async getMinimalHealth(): Promise<{ overall: 'green' | 'amber' | 'red'; timestamp: string }> {
     return request('/api/health/minimal', {}, { overall: 'green', timestamp: new Date().toISOString() });
   },
@@ -423,4 +501,3 @@ export const api = {
     });
   },
 };
-

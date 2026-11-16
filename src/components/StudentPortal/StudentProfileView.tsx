@@ -22,20 +22,45 @@ import {
 } from 'lucide-react';
 import { STUDENT_PROFILE_DATA } from '../../data/studentPortalData';
 import { INSTITUTION_INFO } from '../../data/mockData';
+import { Student, UserProfile, ClassBatch } from '../../types';
 
 interface StudentProfileViewProps {
+  student?: Student;
+  currentUser?: UserProfile;
+  classes?: ClassBatch[];
   onOpenIdCard: () => void;
   onLogout: () => void;
   onChangePhoto?: () => void;
+  onOpenChangePassword?: () => void;
 }
 
 export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
+  student,
+  currentUser,
+  classes = [],
   onOpenIdCard,
   onLogout,
   onChangePhoto,
+  onOpenChangePassword,
 }) => {
   const [activeModal, setActiveModal] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  const displayName = student?.fullName || currentUser?.fullName || STUDENT_PROFILE_DATA.fullName;
+  const displayArabicName = student?.arabicName || currentUser?.arabicName || STUDENT_PROFILE_DATA.arabicName;
+  const displayAdmNo = student?.admissionNumber || currentUser?.referenceId || STUDENT_PROFILE_DATA.admissionNo;
+  const displayAvatar = student?.photo || currentUser?.avatar || STUDENT_PROFILE_DATA.avatarUrl;
+  const displayDob = student?.dateOfBirth || STUDENT_PROFILE_DATA.dateOfBirth;
+  const displayGender = student?.gender || STUDENT_PROFILE_DATA.gender;
+  const displayUsername = currentUser?.username || displayAdmNo;
+  const displayEmail = currentUser?.email || student?.parentEmail || STUDENT_PROFILE_DATA.email;
+  const displayPhone = currentUser?.phone || student?.parentPhone || STUDENT_PROFILE_DATA.phone;
+  const displayParentName = student?.parentName || STUDENT_PROFILE_DATA.parent.fatherName;
+  const displayParentPhone = student?.parentPhone || STUDENT_PROFILE_DATA.parent.fatherPhone;
+  const displayBatchName =
+    classes.find((c) => c.id === student?.classId)?.name ||
+    (student?.classId ? student.classId.toUpperCase() : STUDENT_PROFILE_DATA.admission.batch);
+  const displayAdmissionDate = student?.admissionDate || STUDENT_PROFILE_DATA.admission.admissionDate;
 
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard?.writeText(text);
@@ -63,8 +88,8 @@ export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
         <div className="relative group">
           <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-slate-100 shadow-md bg-slate-50">
             <img
-              src={STUDENT_PROFILE_DATA.avatarUrl}
-              alt={STUDENT_PROFILE_DATA.fullName}
+              src={displayAvatar}
+              alt={displayName}
               className="w-full h-full object-cover"
               referrerPolicy="no-referrer"
             />
@@ -84,19 +109,19 @@ export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
         <div>
           <div className="flex items-center justify-center gap-1.5">
             <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-              {STUDENT_PROFILE_DATA.fullName}
+              {displayName}
             </h2>
             <CheckCircle2 className="w-4 h-4 text-emerald-500 fill-emerald-500 text-white" />
           </div>
           <div className="text-xs text-slate-500 mt-0.5">
-            {STUDENT_PROFILE_DATA.department}
+            {displayBatchName}
           </div>
         </div>
 
-        {/* Register No & Admission No (Matches Screenshot 3) */}
+        {/* Register No & Admission No */}
         <div className="text-xs text-slate-600 font-mono space-y-0.5 pt-1">
-          <div>Register No : {STUDENT_PROFILE_DATA.registerNo}</div>
-          <div>Admission No : {STUDENT_PROFILE_DATA.admissionNo}</div>
+          <div>Roll No : #{student?.rollNumber || '01'}</div>
+          <div>Admission No : {displayAdmNo}</div>
         </div>
       </div>
 
@@ -270,21 +295,21 @@ export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
             <div className="p-5 space-y-3 text-xs">
               <div className="flex justify-between py-1.5 border-b border-slate-100">
                 <span className="text-slate-400">Full Name</span>
-                <span className="font-bold text-slate-900">{STUDENT_PROFILE_DATA.fullName}</span>
+                <span className="font-bold text-slate-900">{displayName}</span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-slate-100">
                 <span className="text-slate-400">Arabic Name</span>
                 <span className="font-arabic font-bold text-slate-900 text-sm">
-                  {STUDENT_PROFILE_DATA.arabicName}
+                  {displayArabicName}
                 </span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-slate-100">
                 <span className="text-slate-400">Date of Birth</span>
-                <span className="font-semibold text-slate-800">{STUDENT_PROFILE_DATA.dateOfBirth}</span>
+                <span className="font-semibold text-slate-800">{displayDob}</span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-slate-100">
                 <span className="text-slate-400">Gender</span>
-                <span className="font-semibold text-slate-800">{STUDENT_PROFILE_DATA.gender}</span>
+                <span className="font-semibold text-slate-800">{displayGender}</span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-slate-100">
                 <span className="text-slate-400">Blood Group</span>
@@ -336,13 +361,13 @@ export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
             </div>
             <div className="p-5 space-y-3 text-xs">
               <div className="flex justify-between py-1.5 border-b border-slate-100">
-                <span className="text-slate-400">Father's Name</span>
-                <span className="font-bold text-slate-900">{STUDENT_PROFILE_DATA.parent.fatherName}</span>
+                <span className="text-slate-400">Guardian / Father's Name</span>
+                <span className="font-bold text-slate-900">{displayParentName}</span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-slate-100">
                 <span className="text-slate-400">Contact Number</span>
                 <span className="font-mono font-bold text-indigo-600">
-                  {STUDENT_PROFILE_DATA.parent.fatherPhone}
+                  {displayParentPhone}
                 </span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-slate-100">
@@ -478,12 +503,12 @@ export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
                 </span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-slate-100">
-                <span className="text-slate-400">Batch Duration</span>
-                <span className="font-mono font-bold text-slate-800">{STUDENT_PROFILE_DATA.admission.batch}</span>
+                <span className="text-slate-400">Assigned Batch</span>
+                <span className="font-mono font-bold text-slate-800">{displayBatchName}</span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-slate-100">
                 <span className="text-slate-400">Admission Date</span>
-                <span className="font-semibold text-slate-800">{STUDENT_PROFILE_DATA.admission.admissionDate}</span>
+                <span className="font-semibold text-slate-800">{displayAdmissionDate}</span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-slate-100">
                 <span className="text-slate-400">Quota</span>
@@ -530,23 +555,27 @@ export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
             <div className="p-5 space-y-3 text-xs">
               <div className="flex justify-between py-1.5 border-b border-slate-100">
                 <span className="text-slate-400">Portal Username</span>
-                <span className="font-mono font-bold text-slate-900">{STUDENT_PROFILE_DATA.admissionNo}</span>
+                <span className="font-mono font-bold text-slate-900">{displayUsername}</span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-slate-100">
                 <span className="text-slate-400">Email Address</span>
-                <span className="font-semibold text-slate-800">{STUDENT_PROFILE_DATA.email}</span>
+                <span className="font-semibold text-slate-800">{displayEmail}</span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-slate-100">
                 <span className="text-slate-400">Phone Number</span>
-                <span className="font-mono font-semibold text-slate-800">{STUDENT_PROFILE_DATA.phone}</span>
+                <span className="font-mono font-semibold text-slate-800">{displayPhone}</span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-slate-100">
                 <span className="text-slate-400">Security Password</span>
                 <span className="font-mono text-slate-500">••••••••••••</span>
               </div>
               <button
-                onClick={() => alert('Password reset link sent to ' + STUDENT_PROFILE_DATA.email)}
-                className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl cursor-pointer text-center"
+                type="button"
+                onClick={() => {
+                  setActiveModal(null);
+                  onOpenChangePassword?.();
+                }}
+                className="w-full py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl cursor-pointer text-center"
               >
                 Change Security Password
               </button>

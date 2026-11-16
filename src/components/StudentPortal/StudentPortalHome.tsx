@@ -26,8 +26,11 @@ import {
   DEFAULT_PINNED_FAVORITES,
   STUDENT_COURSES_DATA,
 } from '../../data/studentPortalData';
+import { Student, UserProfile } from '../../types';
 
 interface StudentPortalHomeProps {
+  student?: Student;
+  currentUser?: UserProfile;
   onOpenAttendance: () => void;
   onOpenProfile: () => void;
   onOpenNotifications: () => void;
@@ -42,6 +45,8 @@ interface StudentPortalHomeProps {
 }
 
 export const StudentPortalHome: React.FC<StudentPortalHomeProps> = ({
+  student,
+  currentUser,
   onOpenAttendance,
   onOpenProfile,
   onOpenNotifications,
@@ -54,6 +59,9 @@ export const StudentPortalHome: React.FC<StudentPortalHomeProps> = ({
   onOpenFeedback,
   pinnedFavoriteIds,
 }) => {
+  const displayName = student?.fullName || currentUser?.fullName || STUDENT_PROFILE_DATA.fullName;
+  const displayAdmNo = student?.admissionNumber || currentUser?.referenceId || STUDENT_PROFILE_DATA.admissionNo;
+  const displayAvatar = student?.photo || currentUser?.avatar || STUDENT_PROFILE_DATA.avatarUrl;
   const [showCampusBanner, setShowCampusBanner] = useState<boolean>(true);
   const [activeAttendanceFilter, setActiveAttendanceFilter] = useState<number | null>(null);
   const [semesterView, setSemesterView] = useState<number>(5); // 5 or 6
@@ -157,8 +165,8 @@ export const StudentPortalHome: React.FC<StudentPortalHomeProps> = ({
           {/* Avatar with glow */}
           <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-sm ring-2 ring-slate-100 group-hover:ring-indigo-300 transition-all bg-slate-100 shrink-0">
             <img
-              src={STUDENT_PROFILE_DATA.avatarUrl}
-              alt={STUDENT_PROFILE_DATA.fullName}
+              src={displayAvatar}
+              alt={displayName}
               className="w-full h-full object-cover"
               referrerPolicy="no-referrer"
             />
@@ -167,12 +175,12 @@ export const StudentPortalHome: React.FC<StudentPortalHomeProps> = ({
           <div>
             <div className="flex items-center gap-1.5">
               <span className="text-sm sm:text-base font-extrabold text-slate-900 tracking-tight group-hover:text-indigo-600 transition-colors uppercase">
-                {STUDENT_PROFILE_DATA.fullName}
+                {displayName}
               </span>
               <CheckCircle2 className="w-4 h-4 text-emerald-500 fill-emerald-500 text-white shrink-0" />
             </div>
             <div className="text-xs text-slate-500 font-mono">
-              Admission No : {STUDENT_PROFILE_DATA.admissionNo}
+              Admission No : {displayAdmNo}
             </div>
           </div>
         </button>

@@ -2,20 +2,41 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { User, IUser } from '../models/User';
 import { AuditLog } from '../models/InstitutionModels';
+import { isMongoReady, getRuntimeDb } from '../config/runtimeStore';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'hyba_secure_jwt_secret_key_2026';
 
-export interface AuthRequest extends Request {
-  user?: IUser;
+export interface AuthUserShape {
+  id: string;
+  role: 'HYBA_SUPER_ADMIN' | 'MUDEER' | 'USTHAD' | 'STUDENT' | 'PARENT';
+  fullName: string;
+  arabicName?: string;
+  username: string;
+  email: string;
+  phone: string;
+  avatar: string;
+  title?: string;
+  referenceId?: string;
+  campusId?: string;
+  studentId?: string;
+  linkedStudentIds?: string[];
+  assignedClassIds?: string[];
+  mustChangePassword?: boolean;
+  isActive: boolean;
 }
 
-export function generateToken(user: IUser): string {
+export interface AuthRequest extends Request {
+  user?: IUser | AuthUserShape;
+}
+
+export function generateToken(user: Pick<AuthUserShape, 'id' | 'role' | 'username' | 'fullName' | 'campusId' | 'studentId' | 'assignedClassIds'>): string {
   return jwt.sign(
     {
       id: user.id,
       role: user.role,
       username: user.username,
       fullName: user.fullName,
+      campusId: user.campusId,
       studentId: user.studentId,
       assignedClassIds: user.assignedClassIds,
     },
@@ -43,7 +64,34 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
     }
 
     const decoded = jwt.verify(token, JWT_SECRET) as { id: string; role: string };
-    const user = await User.findOne({ id: decoded.id });
+
+    let user: IUser | AuthUserShape | null = null;
+    if (isMongoReady()) {
+      user = await User.findOne({ id: decoded.id });
+    } else {
+      const db = getRuntimeDb();
+      const rtUser = db.users.find((u) => u.id === decoded.id);
+      if (rtUser) {
+        user = {
+          id: rtUser.id,
+          role: rtUser.role,
+          fullName: rtUser.fullName,
+          arabicName: rtUser.arabicName,
+          username: rtUser.username,
+          email: rtUser.email,
+          phone: rtUser.phone,
+          avatar: rtUser.avatar,
+          title: rtUser.title,
+          referenceId: rtUser.referenceId,
+          campusId: rtUser.campusId,
+          studentId: rtUser.studentId,
+          linkedStudentIds: rtUser.linkedStudentIds,
+          assignedClassIds: rtUser.assignedClassIds,
+          mustChangePassword: Boolean(rtUser.mustChangePassword),
+          isActive: rtUser.isActive,
+        };
+      }
+    }
 
     if (!user || !user.isActive) {
       return res.status(401).json({
@@ -87,12 +135,13 @@ export function authorize(...roles: string[]) {
  */
 export async function logAuditEvent(
   action: string,
-  user: IUser | undefined,
+  user: IUser | AuthUserShape | undefined,
   resource: string,
   targetId?: string,
   details?: Record<string, any>,
   ip?: string
 ) {
+  if (!isMongoReady()) return;
   try {
     await AuditLog.create({
       id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,

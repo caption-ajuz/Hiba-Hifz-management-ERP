@@ -25,8 +25,6 @@ export const AddHifzRecordModal: React.FC<AddHifzRecordModalProps> = ({
   currentUser,
   onAddRecord,
 }) => {
-  if (!isOpen) return null;
-
   const [selectedStudentId, setSelectedStudentId] = useState<string>(students[0]?.id || 'std_01');
   const [recordType, setRecordType] = useState<HifzRecordType>('SABQ');
   const [selectedSurahNumber, setSelectedSurahNumber] = useState<number>(1);
@@ -40,6 +38,8 @@ export const AddHifzRecordModal: React.FC<AddHifzRecordModalProps> = ({
   const [remarks, setRemarks] = useState<string>('');
   const [nextLessonConfirmed, setNextLessonConfirmed] = useState<boolean>(true);
   const [nextLessonPosition, setNextLessonPosition] = useState<string>('');
+
+  if (!isOpen) return null;
 
   const currentSurah = QURAN_SURAHS.find((s) => s.number === selectedSurahNumber) || QURAN_SURAHS[0];
   const selectedStudent = students.find((s) => s.id === selectedStudentId);

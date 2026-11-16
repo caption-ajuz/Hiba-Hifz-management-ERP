@@ -26,12 +26,13 @@ import {
   TeacherEvaluation,
   Announcement,
 } from './types';
-import { api, removeAuthToken } from './services/api';
+import { api, getAuthToken, removeAuthToken } from './services/api';
 import { subscribeToRealtimeEvents } from './services/socket';
 
 // Components
 import { Navbar } from './components/Navbar';
 import { LoginPage } from './components/LoginPage';
+import { HybaSuperAdminPortal } from './components/HybaSuperAdminPortal';
 import { AdminDashboard } from './components/AdminDashboard';
 import { TeacherDashboard } from './components/TeacherDashboard';
 import { StudentDashboard } from './components/StudentDashboard';
@@ -50,11 +51,10 @@ import { AddHifzRecordModal } from './components/AddHifzRecordModal';
 import { StudentIdCardModal } from './components/StudentIdCardModal';
 import { TimetableModal } from './components/TimetableModal';
 import { FeedbackModal } from './components/FeedbackModal';
+import { ChangePasswordModal } from './components/ChangePasswordModal';
 
 export default function App() {
-  // Authentication State
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    // Check if user session exists in localStorage
     const savedId = localStorage.getItem('hyba_auth_user_id');
     return Boolean(savedId);
   });
@@ -69,6 +69,9 @@ export default function App() {
   });
 
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
+  const [campusManagementAction, setCampusManagementAction] = useState<
+    'add' | { type: 'mudeer'; campusId: string } | null
+  >(null);
 
   // Application Data States
   const [students, setStudents] = useState<Student[]>(MOCK_STUDENTS);
@@ -83,38 +86,77 @@ export default function App() {
   // Modals state
   const [isAddHifzOpen, setIsAddHifzOpen] = useState<boolean>(false);
   const [isIdCardOpen, setIsIdCardOpen] = useState<boolean>(false);
-  const [idCardStudent, setIdCardStudent] = useState<Student>(MOCK_STUDENTS[4]); // default to Mohammed Ajash
+  const [idCardStudent, setIdCardStudent] = useState<Student>(MOCK_STUDENTS[4]);
   const [isTimetableOpen, setIsTimetableOpen] = useState<boolean>(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState<boolean>(false);
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState<boolean>(false);
 
-  // Load Data from MongoDB Atlas on authentication and mount
+  // Sync authenticated session & load scoped data whenever user/role/campus changes
   useEffect(() => {
     let isMounted = true;
 
     async function fetchAppData() {
       try {
-        const [loadedStudents, loadedTeachers, loadedClasses, loadedHifz, loadedEvals, loadedAnnouncements, loadedCampuses] =
-          await Promise.all([
-            api.getStudents(),
-            api.getTeachers(),
-            api.getClasses(),
-            api.getHifzRecords(),
-            api.getEvaluations(),
-            api.getAnnouncements(),
-            api.getCampuses(),
-          ]);
+        if (getAuthToken()) {
+          try {
+            const me = await api.getCurrentUser();
+            if (isMounted && me) {
+              setCurrentUser((prev) => {
+                const sameClasses =
+                  JSON.stringify(prev.assignedClassIds || []) ===
+                  JSON.stringify(me.assignedClassIds || []);
+                if (
+                  prev.id === me.id &&
+                  prev.role === me.role &&
+                  prev.campusId === me.campusId &&
+                  prev.mustChangePassword === me.mustChangePassword &&
+                  sameClasses
+                ) {
+                  return prev;
+                }
+                return me;
+              });
+              localStorage.setItem('hyba_auth_user_id', me.id);
+            }
+          } catch (authErr: any) {
+            if (authErr?.status === 401) {
+              removeAuthToken();
+              localStorage.removeItem('hyba_auth_user_id');
+              if (isMounted) setIsAuthenticated(false);
+              return;
+            }
+          }
+        }
+
+        const [
+          loadedStudents,
+          loadedTeachers,
+          loadedClasses,
+          loadedHifz,
+          loadedEvals,
+          loadedAnnouncements,
+          loadedCampuses,
+        ] = await Promise.all([
+          api.getStudents(),
+          api.getTeachers(),
+          api.getClasses(),
+          api.getHifzRecords(),
+          api.getEvaluations(),
+          api.getAnnouncements(),
+          api.getCampuses(),
+        ]);
 
         if (isMounted) {
-          if (loadedStudents && loadedStudents.length > 0) setStudents(loadedStudents);
-          if (loadedTeachers && loadedTeachers.length > 0) setTeachers(loadedTeachers);
-          if (loadedClasses && loadedClasses.length > 0) setClasses(loadedClasses);
-          if (loadedHifz && loadedHifz.length > 0) setHifzRecords(loadedHifz);
-          if (loadedEvals && loadedEvals.length > 0) setEvaluations(loadedEvals);
-          if (loadedAnnouncements && loadedAnnouncements.length > 0) setAnnouncements(loadedAnnouncements);
-          if (loadedCampuses && loadedCampuses.length > 0) setCampuses(loadedCampuses);
+          if (Array.isArray(loadedStudents)) setStudents(loadedStudents);
+          if (Array.isArray(loadedTeachers)) setTeachers(loadedTeachers);
+          if (Array.isArray(loadedClasses)) setClasses(loadedClasses);
+          if (Array.isArray(loadedHifz)) setHifzRecords(loadedHifz);
+          if (Array.isArray(loadedEvals)) setEvaluations(loadedEvals);
+          if (Array.isArray(loadedAnnouncements)) setAnnouncements(loadedAnnouncements);
+          if (Array.isArray(loadedCampuses)) setCampuses(loadedCampuses);
         }
       } catch (err) {
-        console.warn('[HYBA Frontend] Fallback active:', err);
+        console.warn('[HYBA Frontend] Offline fallback active:', err);
       }
     }
 
@@ -122,7 +164,6 @@ export default function App() {
       fetchAppData();
     }
 
-    // Subscribe to real-time events via Socket.IO (Phase 4)
     const unsubscribe = subscribeToRealtimeEvents({
       onAttendanceUpdated: (data) => {
         setAttendanceSession((prev) => {
@@ -175,47 +216,59 @@ export default function App() {
       isMounted = false;
       unsubscribe();
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, currentUser.id, currentUser.role, currentUser.campusId]);
 
-  // Handle Login
   const handleLoginSuccess = (user: UserProfile) => {
     setCurrentUser(user);
     setIsAuthenticated(true);
     setCurrentTab('dashboard');
+    setCampusManagementAction(null);
     localStorage.setItem('hyba_auth_user_id', user.id);
   };
 
-  // Handle Logout
   const handleLogout = () => {
     removeAuthToken();
     setIsAuthenticated(false);
+    setCurrentTab('dashboard');
+    setCampusManagementAction(null);
     localStorage.removeItem('hyba_auth_user_id');
   };
 
-  // Handle Role / Profile Switching
-  const handleSelectUser = async (user: UserProfile) => {
-    setCurrentUser(user);
-    localStorage.setItem('hyba_auth_user_id', user.id);
-    setCurrentTab('dashboard');
-    try {
-      await api.switchUser(user.id);
-    } catch {
-      // Handled seamlessly
-    }
-  };
+  // Defensive client-side campus isolation for Mudeer (mirrors server-side isolation)
+  const isMudeer = currentUser.role === 'MUDEER';
+  const mudeerCampusId = currentUser.campusId;
+
+  const scopedStudents =
+    isMudeer && mudeerCampusId
+      ? students.filter((s) => s.campusId === mudeerCampusId)
+      : students;
+  const scopedTeachers =
+    isMudeer && mudeerCampusId
+      ? teachers.filter((t) => t.assignedCampusId === mudeerCampusId)
+      : teachers;
+  const scopedClasses =
+    isMudeer && mudeerCampusId
+      ? classes.filter((c) => c.campusId === mudeerCampusId)
+      : classes;
+  const scopedHifzRecords =
+    isMudeer && mudeerCampusId
+      ? hifzRecords.filter((r) => scopedStudents.some((s) => s.id === r.studentId))
+      : hifzRecords;
+
+  const assignedCampus = campuses.find((c) => c.id === currentUser.campusId);
 
   const handleOpenIdCard = (student?: Student) => {
     if (student) {
       setIdCardStudent(student);
     } else {
-      const currentStudentObj = students.find((s) => s.id === currentUser.studentId) || students[4];
+      const currentStudentObj =
+        scopedStudents.find((s) => s.id === currentUser.studentId) || scopedStudents[0] || MOCK_STUDENTS[4];
       setIdCardStudent(currentStudentObj);
     }
     setIsIdCardOpen(true);
   };
 
   const handleAddHifzRecord = async (newRecord: HifzRecord) => {
-    // Optimistic UI update
     setHifzRecords((prev) => [newRecord, ...prev]);
     try {
       await api.createHifzRecord(newRecord);
@@ -225,7 +278,6 @@ export default function App() {
   };
 
   const handleSaveAttendanceSession = async (session: AttendanceSession) => {
-    // Optimistic UI update
     setAttendanceSession(session);
     try {
       await api.saveAttendanceSession(session);
@@ -234,13 +286,30 @@ export default function App() {
     }
   };
 
-  const handleAddStudent = async (newStudent: Student) => {
-    // Optimistic UI update
-    setStudents((prev) => [...prev, newStudent]);
+  const refreshRosterAndClasses = async () => {
     try {
-      await api.createStudent(newStudent);
+      const [latestStudents, latestClasses, latestTeachers] = await Promise.all([
+        api.getStudents(),
+        api.getClasses(),
+        api.getTeachers(),
+      ]);
+      if (Array.isArray(latestStudents)) setStudents(latestStudents);
+      if (Array.isArray(latestClasses)) setClasses(latestClasses);
+      if (Array.isArray(latestTeachers)) setTeachers(latestTeachers);
     } catch (err) {
-      console.error('[HYBA] Error creating student in MongoDB:', err);
+      console.warn('[HYBA] Error refreshing roster/classes:', err);
+    }
+  };
+
+  const handleAddStudent = async (newStudent: Student) => {
+    try {
+      const created = await api.createStudent(newStudent);
+      const merged = created && created.id ? created : newStudent;
+      setStudents((prev) => [...prev.filter((s) => s.id !== merged.id), merged]);
+      await refreshRosterAndClasses();
+    } catch (err) {
+      console.error('[HYBA] Error creating student:', err);
+      setStudents((prev) => [...prev, newStudent]);
     }
   };
 
@@ -267,37 +336,77 @@ export default function App() {
     }
   };
 
-  // If user is not authenticated, render the dedicated Campus Login Page
   if (!isAuthenticated) {
     return <LoginPage onLoginSuccess={handleLoginSuccess} />;
   }
 
   const renderMainTabContent = () => {
+    // HYBA Super Admin Platform Portal (Strictly separated from Campus Mudeer portal)
+    if (currentUser.role === 'HYBA_SUPER_ADMIN') {
+      if (currentTab === 'campuses') {
+        return (
+          <CampusManagement
+            currentUser={currentUser}
+            students={students}
+            teachers={teachers}
+            classes={classes}
+            initialAction={campusManagementAction}
+            onClearInitialAction={() => setCampusManagementAction(null)}
+            onCampusesUpdated={(updated) => setCampuses(updated)}
+          />
+        );
+      }
+      if (currentTab === 'reports') {
+        return <ReportsModule students={students} records={hifzRecords} classes={classes} />;
+      }
+      return (
+        <HybaSuperAdminPortal
+          currentUser={currentUser}
+          campuses={campuses}
+          students={students}
+          teachers={teachers}
+          classes={classes}
+          onNavigate={setCurrentTab}
+          onOpenAddCampus={() => {
+            setCampusManagementAction('add');
+            setCurrentTab('campuses');
+          }}
+          onManageCampusMudeer={(campus) => {
+            setCampusManagementAction({ type: 'mudeer', campusId: campus.id });
+            setCurrentTab('campuses');
+          }}
+        />
+      );
+    }
+
+    // Mudeer, Usthad, Student, Parent Portals
     switch (currentTab) {
       case 'dashboard':
-        if (currentUser.role === 'SUPER_ADMIN') {
+        if (currentUser.role === 'MUDEER') {
           return (
             <AdminDashboard
-              students={students}
-              teachers={teachers}
-              classes={classes}
-              records={hifzRecords}
+              students={scopedStudents}
+              teachers={scopedTeachers}
+              classes={scopedClasses}
+              records={scopedHifzRecords}
               announcements={announcements}
               currentUser={currentUser}
+              assignedCampus={assignedCampus}
               onNavigate={setCurrentTab}
               onOpenAttendance={() => setCurrentTab('attendance')}
               onOpenAddHifz={() => setIsAddHifzOpen(true)}
               onOpenTimetable={() => setIsTimetableOpen(true)}
               onOpenFeedback={() => setIsFeedbackOpen(true)}
+              onOpenChangePassword={() => setIsChangePasswordOpen(true)}
             />
           );
         } else if (currentUser.role === 'USTHAD') {
           return (
             <TeacherDashboard
               currentUser={currentUser}
-              students={students}
-              classes={classes}
-              records={hifzRecords}
+              students={scopedStudents}
+              classes={scopedClasses}
+              records={scopedHifzRecords}
               onOpenAttendance={() => setCurrentTab('attendance')}
               onOpenAddHifz={() => setIsAddHifzOpen(true)}
               onOpenTimetable={() => setIsTimetableOpen(true)}
@@ -305,16 +414,21 @@ export default function App() {
             />
           );
         } else if (currentUser.role === 'STUDENT') {
-          const studentObj = students.find((s) => s.id === currentUser.studentId) || students[4];
+          const studentObj =
+            scopedStudents.find((s) => s.id === currentUser.studentId) ||
+            scopedStudents[0] ||
+            MOCK_STUDENTS[4];
           return (
             <StudentDashboard
               currentUser={currentUser}
               student={studentObj}
-              records={hifzRecords}
+              classes={scopedClasses}
+              records={scopedHifzRecords}
               evaluations={evaluations}
               onOpenIdCard={() => handleOpenIdCard(studentObj)}
               onOpenTimetable={() => setIsTimetableOpen(true)}
               onOpenFeedback={() => setIsFeedbackOpen(true)}
+              onOpenChangePassword={() => setIsChangePasswordOpen(true)}
               onNavigate={setCurrentTab}
               onStudentUpdated={handleStudentUpdated}
             />
@@ -323,8 +437,8 @@ export default function App() {
           return (
             <ParentDashboard
               currentUser={currentUser}
-              students={students}
-              records={hifzRecords}
+              students={scopedStudents}
+              records={scopedHifzRecords}
               onOpenIdCard={handleOpenIdCard}
               onNavigate={setCurrentTab}
             />
@@ -332,23 +446,14 @@ export default function App() {
         }
 
       case 'campuses':
-        if (currentUser.role !== 'SUPER_ADMIN') {
-          return null;
-        }
-        return (
-          <CampusManagement
-            currentUser={currentUser}
-            students={students}
-            teachers={teachers}
-            classes={classes}
-          />
-        );
+        // Campus creation & multi-campus registry belongs strictly to HYBA_SUPER_ADMIN
+        return null;
 
       case 'attendance':
         return (
           <AttendanceModule
-            students={students}
-            classes={classes}
+            students={scopedStudents}
+            classes={scopedClasses}
             currentUser={currentUser}
             initialSession={attendanceSession}
             onSaveSession={handleSaveAttendanceSession}
@@ -358,11 +463,11 @@ export default function App() {
       case 'hifz':
         return (
           <HifzModule
-            records={hifzRecords}
-            students={students}
+            records={scopedHifzRecords}
+            students={scopedStudents}
             currentUser={currentUser}
             onOpenAddModal={() => {
-              if (currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'USTHAD') {
+              if (currentUser.role === 'MUDEER' || currentUser.role === 'USTHAD') {
                 setIsAddHifzOpen(true);
               }
             }}
@@ -375,37 +480,32 @@ export default function App() {
         }
         return (
           <StudentManagement
-            students={students}
-            classes={classes}
-            teachers={teachers}
+            students={scopedStudents}
+            classes={scopedClasses}
+            teachers={scopedTeachers}
             currentUser={currentUser}
+            assignedCampus={assignedCampus}
             onOpenIdCard={handleOpenIdCard}
             onAddStudent={handleAddStudent}
             onUpdateStudent={handleStudentUpdated}
             onDeleteStudent={(id) => setStudents((prev) => prev.filter((s) => s.id !== id))}
             onAddClass={(newC) => setClasses((prev) => [...prev, newC])}
-            onRefreshStudents={async () => {
-              const latest = await api.getStudents();
-              if (latest && latest.length > 0) setStudents(latest);
-            }}
+            onRefreshStudents={refreshRosterAndClasses}
           />
         );
 
       case 'teachers':
-        if (currentUser.role !== 'SUPER_ADMIN') {
+        if (currentUser.role !== 'MUDEER') {
           return null;
         }
         return (
           <TeacherManagement
-            teachers={teachers}
-            classes={classes}
+            teachers={scopedTeachers}
+            classes={scopedClasses}
             currentUser={currentUser}
-            campuses={campuses}
+            campuses={assignedCampus ? [assignedCampus] : campuses}
             onAddTeacher={(newT) => setTeachers((prev) => [...prev, newT])}
-            onRefreshTeachers={async () => {
-              const latest = await api.getTeachers();
-              if (latest && latest.length > 0) setTeachers(latest);
-            }}
+            onRefreshTeachers={refreshRosterAndClasses}
           />
         );
 
@@ -415,15 +515,13 @@ export default function App() {
         }
         return (
           <ClassManagement
-            classes={classes}
-            teachers={teachers}
-            students={students}
+            classes={scopedClasses}
+            teachers={scopedTeachers}
+            students={scopedStudents}
             currentUser={currentUser}
+            assignedCampus={assignedCampus}
             onAddClass={(newC) => setClasses((prev) => [...prev, newC])}
-            onRefreshClasses={async () => {
-              const latest = await api.getClasses();
-              if (latest && latest.length > 0) setClasses(latest);
-            }}
+            onRefreshClasses={refreshRosterAndClasses}
           />
         );
 
@@ -433,9 +531,9 @@ export default function App() {
       case 'reports':
         return (
           <ReportsModule
-            students={students}
-            records={hifzRecords}
-            classes={classes}
+            students={scopedStudents}
+            records={scopedHifzRecords}
+            classes={scopedClasses}
           />
         );
 
@@ -446,29 +544,34 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-emerald-100 selection:text-emerald-900 antialiased overflow-x-hidden">
-      {/* Navbar with mobile bottom bar & top header */}
       <Navbar
         currentUser={currentUser}
+        assignedCampus={assignedCampus}
         currentTab={currentTab}
         onTabChange={setCurrentTab}
         onOpenAttendance={() => setCurrentTab('attendance')}
         onOpenAddHifz={() => {
-          if (currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'USTHAD') {
+          if (currentUser.role === 'MUDEER' || currentUser.role === 'USTHAD') {
             setIsAddHifzOpen(true);
           }
         }}
         onOpenIdCard={() => handleOpenIdCard()}
         onOpenTimetable={() => setIsTimetableOpen(true)}
         onOpenFeedback={() => setIsFeedbackOpen(true)}
+        onOpenChangePassword={() => setIsChangePasswordOpen(true)}
+        onOpenAddCampus={
+          currentUser.role === 'HYBA_SUPER_ADMIN'
+            ? () => {
+                setCampusManagementAction('add');
+                setCurrentTab('campuses');
+              }
+            : undefined
+        }
         onLogout={handleLogout}
       />
 
-      {/* Main Viewport Content */}
-      <main className="flex-1 pb-16 lg:pb-8">
-        {renderMainTabContent()}
-      </main>
+      <main className="flex-1 pb-16 lg:pb-8">{renderMainTabContent()}</main>
 
-      {/* Responsive Institutional Footer (Clean, unbloated on mobile) */}
       <footer className="bg-slate-900 text-slate-400 text-xs py-6 sm:py-8 border-t border-slate-800 pb-20 lg:pb-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3 text-center sm:text-left">
@@ -482,7 +585,7 @@ export default function App() {
             </div>
             <div>
               <div className="text-white font-bold text-xs sm:text-sm">
-                {INSTITUTION_INFO.name} ({INSTITUTION_INFO.arabicName})
+                {assignedCampus?.name || INSTITUTION_INFO.name} ({assignedCampus?.arabicName || INSTITUTION_INFO.arabicName})
               </div>
               <div className="text-[10px] sm:text-[11px] text-slate-400">
                 {INSTITUTION_INFO.shortAddress}
@@ -504,11 +607,10 @@ export default function App() {
       </footer>
 
       {/* Modals */}
-
       <AddHifzRecordModal
         isOpen={isAddHifzOpen}
         onClose={() => setIsAddHifzOpen(false)}
-        students={students}
+        students={scopedStudents}
         currentUser={currentUser}
         onAddRecord={handleAddHifzRecord}
       />
@@ -531,6 +633,15 @@ export default function App() {
         currentUser={currentUser}
         evaluations={evaluations}
         onCompleteEvaluation={handleCompleteEvaluation}
+      />
+
+      <ChangePasswordModal
+        isOpen={isChangePasswordOpen}
+        onClose={() => setIsChangePasswordOpen(false)}
+        currentUser={currentUser}
+        onPasswordChanged={() =>
+          setCurrentUser((prev) => ({ ...prev, mustChangePassword: false }))
+        }
       />
     </div>
   );

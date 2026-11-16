@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { INSTITUTION_INFO } from '../data/mockData';
-import { Student, HifzRecord, UserProfile, TeacherEvaluation } from '../types';
+import { Student, HifzRecord, UserProfile, TeacherEvaluation, ClassBatch } from '../types';
 import { JUZ_NAMES } from '../data/quranData';
 import { api } from '../services/api';
 import {
@@ -14,6 +14,7 @@ import {
   Sparkles,
   Camera,
   Loader2,
+  KeyRound,
 } from 'lucide-react';
 
 // Subcomponents for Student Portal
@@ -30,11 +31,13 @@ import { DEFAULT_PINNED_FAVORITES } from '../data/studentPortalData';
 interface StudentDashboardProps {
   currentUser: UserProfile;
   student: Student;
+  classes?: ClassBatch[];
   records: HifzRecord[];
   evaluations: TeacherEvaluation[];
   onOpenIdCard: () => void;
   onOpenTimetable: () => void;
   onOpenFeedback: () => void;
+  onOpenChangePassword?: () => void;
   onNavigate: (tab: string) => void;
   onStudentUpdated?: (student: Student) => void;
 }
@@ -42,11 +45,13 @@ interface StudentDashboardProps {
 export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   currentUser,
   student,
+  classes = [],
   records,
   evaluations,
   onOpenIdCard,
   onOpenTimetable,
   onOpenFeedback,
+  onOpenChangePassword,
   onNavigate,
   onStudentUpdated,
 }) => {
@@ -123,9 +128,35 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         </div>
       )}
 
+      {/* First-Login Default Password Banner */}
+      {currentUser.mustChangePassword && onOpenChangePassword && (
+        <div className="max-w-xl mx-auto px-3 sm:px-4 pt-3">
+          <div className="bg-amber-50 border border-amber-300 rounded-2xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-2xs">
+            <div className="flex items-start gap-2.5 text-xs text-amber-950">
+              <KeyRound className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+              <div>
+                <div className="font-bold">First Login Password Reminder</div>
+                <div className="text-[11px] text-amber-800">
+                  You are currently using your default login password. Update your password to secure your account.
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onOpenChangePassword}
+              className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shrink-0 cursor-pointer self-start sm:self-center"
+            >
+              Change Password
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main Viewport Content based on active portal tab */}
       {activePortalTab === 'home' && (
         <StudentPortalHome
+          student={student}
+          currentUser={currentUser}
           onOpenAttendance={() => setActivePortalTab('attendance')}
           onOpenProfile={() => setActivePortalTab('profile')}
           onOpenNotifications={() => setIsNotificationsOpen(true)}
@@ -162,12 +193,16 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
       {activePortalTab === 'profile' && (
         <StudentProfileView
+          student={student}
+          currentUser={currentUser}
+          classes={classes}
           onOpenIdCard={onOpenIdCard}
           onLogout={() => {
             localStorage.removeItem('hyba_auth_user_id');
             window.location.reload();
           }}
           onChangePhoto={() => fileInputRef.current?.click()}
+          onOpenChangePassword={onOpenChangePassword}
         />
       )}
 

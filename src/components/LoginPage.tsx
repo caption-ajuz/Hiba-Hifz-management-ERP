@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { INSTITUTION_INFO, MOCK_USERS } from '../data/mockData';
 import { api } from '../services/api';
-import { UserProfile, UserRole } from '../types';
+import { UserProfile } from '../types';
 import {
   User,
   Lock,
@@ -10,10 +10,12 @@ import {
   AlertCircle,
   CheckCircle2,
   ArrowRight,
+  ArrowLeft,
   ShieldCheck,
   Sparkles,
   KeyRound,
   X,
+  Phone,
 } from 'lucide-react';
 
 interface LoginPageProps {
@@ -28,17 +30,28 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const [rememberMe, setRememberMe] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  // Forgot password modal state
+  // 3-Step Secure Forgot Password Modal state
   const [showForgotModal, setShowForgotModal] = useState<boolean>(false);
-  const [forgotEmail, setForgotEmail] = useState<string>('');
-  const [forgotSubmitted, setForgotSubmitted] = useState<boolean>(false);
+  const [resetStep, setResetStep] = useState<'request' | 'verify' | 'confirm' | 'done'>('request');
+  const [resetIdentifier, setResetIdentifier] = useState<string>('');
+  const [maskedEmail, setMaskedEmail] = useState<string | null>(null);
+  const [maskedPhone, setMaskedPhone] = useState<string | null>(null);
+  const [previewOtp, setPreviewOtp] = useState<string | null>(null);
+  const [otpInput, setOtpInput] = useState<string>('');
+  const [phoneLast4Input, setPhoneLast4Input] = useState<string>('');
+  const [resetToken, setResetToken] = useState<string>('');
+  const [newResetPassword, setNewResetPassword] = useState<string>('');
+  const [confirmResetPassword, setConfirmResetPassword] = useState<string>('');
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [isResetLoading, setIsResetLoading] = useState<boolean>(false);
 
   // Robust image fallback states
   const [bannerError, setBannerError] = useState<boolean>(false);
   const [logoError, setLogoError] = useState<boolean>(false);
 
-  // Quick select helper to auto-fill credentials for demo
-  const handleQuickFill = (roleKey: 'admin' | 'teacher' | 'student' | 'parent') => {
+  const handleQuickFill = (
+    roleKey: 'hybaSuperAdmin' | 'admin' | 'teacher' | 'student' | 'parent'
+  ) => {
     const user = MOCK_USERS[roleKey];
     if (user) {
       setUsernameInput(user.username || user.email);
@@ -68,56 +81,135 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     }
 
     try {
-      // 1. Authenticate against backend MongoDB Atlas API & receive JWT
       const result = await api.login(trimmedUser, trimmedPass);
       if (rememberMe) {
         localStorage.setItem('hyba_auth_user_id', result.user.id);
       }
       onLoginSuccess(result.user);
     } catch (err: any) {
-      // If network/offline, check local fallback
-      const cleanUser = trimmedUser.toLowerCase();
-      const matchedUser = Object.values(MOCK_USERS).find((u) => {
-        const matchUsername = (u.username || '').toLowerCase() === cleanUser;
-        const matchEmail = u.email.toLowerCase() === cleanUser;
-        const matchRef = (u.referenceId || '').toLowerCase() === cleanUser;
-        const matchPassword = (u.password || 'password123') === trimmedPass;
-
-        return (matchUsername || matchEmail || matchRef) && matchPassword;
-      });
-
-      if (matchedUser) {
-        if (rememberMe) {
-          localStorage.setItem('hyba_auth_user_id', matchedUser.id);
-        }
-        onLoginSuccess(matchedUser);
-      } else {
+      // Security critical: NEVER fall back to MOCK_USERS if backend returned an HTTP error (e.g. 401/403)
+      if (err?.status) {
         setErrorMessage(
-          err.message || 'Invalid credentials. Please verify your username and password, or use one of the quick test accounts below.'
+          err.message || 'Invalid credentials. Please verify your username and password.'
         );
+      } else {
+        // Offline / network failure fallback only
+        const cleanUser = trimmedUser.toLowerCase();
+        const matchedUser = Object.values(MOCK_USERS).find((u) => {
+          const matchUsername = (u.username || '').toLowerCase() === cleanUser;
+          const matchEmail = u.email.toLowerCase() === cleanUser;
+          const matchRef = (u.referenceId || '').toLowerCase() === cleanUser;
+          const matchPassword = (u.password || 'password123') === trimmedPass;
+          return (matchUsername || matchEmail || matchRef) && matchPassword;
+        });
+
+        if (matchedUser) {
+          if (rememberMe) {
+            localStorage.setItem('hyba_auth_user_id', matchedUser.id);
+          }
+          onLoginSuccess(matchedUser);
+        } else {
+          setErrorMessage(
+            err.message || 'Invalid credentials. Please verify your username and password.'
+          );
+        }
       }
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleForgotSubmit = (e: React.FormEvent) => {
+  const openForgotModal = () => {
+    setResetStep('request');
+    setResetIdentifier(usernameInput.trim() || '');
+    setMaskedEmail(null);
+    setMaskedPhone(null);
+    setPreviewOtp(null);
+    setOtpInput('');
+    setPhoneLast4Input('');
+    setResetToken('');
+    setNewResetPassword('');
+    setConfirmResetPassword('');
+    setResetError(null);
+    setShowForgotModal(true);
+  };
+
+  const handleRequestOtp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!forgotEmail) return;
-    setForgotSubmitted(true);
-    setTimeout(() => {
-      setShowForgotModal(false);
-      setForgotSubmitted(false);
-      setForgotEmail('');
-    }, 2500);
+    if (!resetIdentifier.trim()) return;
+    setResetError(null);
+    setIsResetLoading(true);
+    try {
+      const res = await api.requestPasswordReset(resetIdentifier.trim());
+      setMaskedEmail(res.maskedEmail || null);
+      setMaskedPhone(res.maskedPhone || null);
+      setPreviewOtp(res.previewOtp || null);
+      setResetStep('verify');
+    } catch (err: any) {
+      setResetError(err.message || 'Failed to initiate password recovery.');
+    } finally {
+      setIsResetLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResetError(null);
+    if (!otpInput.trim() || otpInput.trim().length !== 6) {
+      setResetError('Enter the 6-digit verification code.');
+      return;
+    }
+    if (!phoneLast4Input.trim() || phoneLast4Input.trim().length !== 4) {
+      setResetError('Enter the last 4 digits of your registered phone number.');
+      return;
+    }
+
+    setIsResetLoading(true);
+    try {
+      const res = await api.verifyResetOtp(
+        resetIdentifier.trim(),
+        otpInput.trim(),
+        phoneLast4Input.trim()
+      );
+      setResetToken(res.resetToken);
+      setResetStep('confirm');
+    } catch (err: any) {
+      setResetError(err.message || 'Verification failed. Check code and phone digits.');
+    } finally {
+      setIsResetLoading(false);
+    }
+  };
+
+  const handleConfirmReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResetError(null);
+    if (newResetPassword.length < 8) {
+      setResetError('New password must be at least 8 characters long.');
+      return;
+    }
+    if (newResetPassword !== confirmResetPassword) {
+      setResetError('Passwords do not match.');
+      return;
+    }
+
+    setIsResetLoading(true);
+    try {
+      await api.confirmPasswordReset(resetToken, newResetPassword);
+      setUsernameInput(resetIdentifier.trim());
+      setPasswordInput('');
+      setResetStep('done');
+    } catch (err: any) {
+      setResetError(err.message || 'Failed to set new password.');
+    } finally {
+      setIsResetLoading(false);
+    }
   };
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-start sm:justify-center p-0 sm:p-4">
-      {/* Container matching uploaded reference screenshot */}
       <div className="w-full sm:max-w-md bg-white sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col min-h-screen sm:min-h-0 border-0 sm:border border-slate-200/80">
         {/* Top Campus Architecture Banner */}
-        <div className="relative h-60 sm:h-64 w-full overflow-hidden bg-gradient-to-br from-emerald-950 via-slate-900 to-teal-950 shrink-0">
+        <div className="relative h-56 sm:h-60 w-full overflow-hidden bg-gradient-to-br from-emerald-950 via-slate-900 to-teal-950 shrink-0">
           {!bannerError ? (
             <img
               src={INSTITUTION_INFO.campusBannerUrl}
@@ -135,16 +227,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               <div className="text-emerald-300/80 text-xs font-arabic mt-1">مركز الهداية الإسلامية · حرم تحفيظ القرآن</div>
             </div>
           )}
-          {/* Subtle gradient overlay */}
           <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-black/50 pointer-events-none"></div>
 
-          {/* Top subtle badge */}
           <div className="absolute top-4 left-4 z-10 flex items-center gap-2 bg-black/40 backdrop-blur-md px-3 py-1 rounded-full text-white text-xs border border-white/20">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
             <span className="font-semibold tracking-wide">HYBA Campus Portal</span>
           </div>
 
-          {/* Scalloped transition curve */}
           <div className="absolute -bottom-1 left-0 right-0 h-6 bg-white rounded-t-3xl"></div>
         </div>
 
@@ -170,7 +259,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                 )}
               </div>
 
-              {/* Institution Title */}
               <h1 className="text-base font-extrabold text-slate-900 mt-2.5 tracking-tight">
                 {INSTITUTION_INFO.name}
               </h1>
@@ -188,7 +276,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               </h2>
             </div>
 
-            {/* Error Message Alert */}
             {errorMessage && (
               <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-start gap-2.5 animate-fade-in">
                 <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
@@ -198,7 +285,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
 
             {/* Login Form */}
             <form onSubmit={handleLogin} className="space-y-3.5">
-              {/* Username Input */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Username / Email / Admission ID
@@ -212,13 +298,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                     required
                     value={usernameInput}
                     onChange={(e) => setUsernameInput(e.target.value)}
-                    placeholder="e.g. mudir or 24812"
+                    placeholder="e.g. mudir or Admin.Hyba_Campus.portal"
                     className="w-full pl-10 pr-3.5 py-3 text-xs sm:text-sm bg-slate-50/80 border border-slate-200 rounded-xl focus:outline-hidden focus:border-emerald-600 focus:bg-white focus:ring-2 focus:ring-emerald-600/15 font-medium transition-all"
                   />
                 </div>
               </div>
 
-              {/* Password Input with Show/Hide Toggle */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Password
@@ -241,16 +326,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                     className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"
                     title={showPassword ? 'Hide password' : 'Show password'}
                   >
-                    {showPassword ? (
-                      <EyeOff className="w-4 h-4" />
-                    ) : (
-                      <Eye className="w-4 h-4" />
-                    )}
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
               </div>
 
-              {/* Remember me & Forgot Password */}
               <div className="flex items-center justify-between text-xs pt-0.5">
                 <label className="flex items-center gap-2 text-slate-600 cursor-pointer select-none">
                   <input
@@ -263,14 +343,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                 </label>
                 <button
                   type="button"
-                  onClick={() => setShowForgotModal(true)}
+                  onClick={openForgotModal}
                   className="text-emerald-700 hover:text-emerald-800 font-semibold cursor-pointer"
                 >
                   Forgot password?
                 </button>
               </div>
 
-              {/* Prominent Login Button */}
               <button
                 type="submit"
                 disabled={isSubmitting}
@@ -287,18 +366,36 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               </button>
             </form>
 
-            {/* Quick Test Accounts Picker (Designed cleanly to help evaluation) */}
-            <div className="pt-3 border-t border-slate-100">
-              <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider text-center mb-2">
-                Quick Test Accounts (Click to Fill)
+            {/* Role Portals Quick Access */}
+            <div className="pt-3 border-t border-slate-100 space-y-2">
+              <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider text-center">
+                Quick Portal Accounts (Click to Fill)
               </div>
+
+              <button
+                type="button"
+                onClick={() => handleQuickFill('hybaSuperAdmin')}
+                className="w-full p-2.5 rounded-xl border border-amber-300/80 bg-amber-50/70 hover:bg-amber-100/70 transition-colors text-left cursor-pointer flex items-center justify-between gap-2"
+              >
+                <div>
+                  <div className="text-xs font-extrabold text-slate-900 flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-amber-700" />
+                    <span>HYBA Super Admin (Platform Owner)</span>
+                  </div>
+                  <div className="text-[10px] text-slate-600 font-mono mt-0.5">
+                    Admin.Hyba_Campus.portal
+                  </div>
+                </div>
+                <ArrowRight className="w-3.5 h-3.5 text-amber-800 shrink-0" />
+              </button>
+
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <button
                   type="button"
                   onClick={() => handleQuickFill('admin')}
                   className="p-2 rounded-lg border border-slate-200 bg-slate-50/70 hover:bg-emerald-50 hover:border-emerald-300 transition-colors text-left cursor-pointer"
                 >
-                  <div className="font-bold text-slate-900">Mudir / Admin</div>
+                  <div className="font-bold text-slate-900">Campus Mudeer</div>
                   <div className="text-[10px] text-slate-500 font-mono">mudir</div>
                 </button>
                 <button
@@ -329,72 +426,240 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
             </div>
           </div>
 
-          {/* Footer note */}
           <div className="mt-4 pt-3 border-t border-slate-100 text-center text-[11px] text-slate-400">
             Protected Role-Based Hifz Campus Management System · v1.0
           </div>
         </div>
       </div>
 
-      {/* Forgot Password Modal */}
+      {/* Secure 3-Step Password Recovery Modal */}
       {showForgotModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="w-full max-w-sm bg-white rounded-2xl p-6 shadow-2xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/65 backdrop-blur-xs">
+          <div className="w-full max-w-md bg-white rounded-2xl p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <KeyRound className="w-5 h-5 text-emerald-700" />
-                <h3 className="text-sm font-bold text-slate-900">Reset Password</h3>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Secure Password Reset</h3>
+                  <div className="text-[10px] text-slate-500">
+                    {resetStep === 'request'
+                      ? 'Step 1 of 3 · Account Lookup'
+                      : resetStep === 'verify'
+                      ? 'Step 2 of 3 · Identity & Code Verification'
+                      : resetStep === 'confirm'
+                      ? 'Step 3 of 3 · Set New Password'
+                      : 'Recovery Complete'}
+                  </div>
+                </div>
               </div>
               <button
+                type="button"
                 onClick={() => setShowForgotModal(false)}
-                className="w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600"
+                className="w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            {forgotSubmitted ? (
-              <div className="p-4 bg-emerald-50 text-emerald-900 rounded-xl border border-emerald-200 text-xs text-center space-y-2 animate-fade-in">
-                <CheckCircle2 className="w-8 h-8 text-emerald-600 mx-auto" />
-                <div className="font-bold">Reset Instructions Sent!</div>
-                <p className="text-[11px] text-emerald-800">
-                  If an account exists for {forgotEmail}, you will receive a reset link shortly.
-                </p>
+            {resetError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                <span>{resetError}</span>
               </div>
-            ) : (
-              <form onSubmit={handleForgotSubmit} className="space-y-3 text-xs">
+            )}
+
+            {resetStep === 'request' && (
+              <form onSubmit={handleRequestOtp} className="space-y-3 text-xs">
                 <p className="text-slate-600 leading-normal">
-                  Enter your registered institutional email address or student ID to receive a password reset link.
+                  Enter your Mudeer username or registered institutional email to initiate secure two-factor password recovery.
                 </p>
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">
-                    Email / Admission ID
+                    Username or Registered Email *
                   </label>
                   <input
                     type="text"
                     required
-                    value={forgotEmail}
-                    onChange={(e) => setForgotEmail(e.target.value)}
-                    placeholder="e.g. mudir@markazulhidaya.edu.in"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-emerald-600 font-medium"
+                    value={resetIdentifier}
+                    onChange={(e) => setResetIdentifier(e.target.value)}
+                    placeholder="e.g. mudir or mudir.city"
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-emerald-600 font-medium"
                   />
                 </div>
                 <div className="pt-2 flex items-center justify-end gap-2">
                   <button
                     type="button"
                     onClick={() => setShowForgotModal(false)}
-                    className="px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200"
+                    className="px-3.5 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 font-semibold cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="px-4 py-1.5 bg-emerald-700 text-white font-bold rounded-lg shadow-xs hover:bg-emerald-800"
+                    disabled={isResetLoading}
+                    className="px-4 py-2 bg-emerald-700 text-white font-bold rounded-lg shadow-xs hover:bg-emerald-800 cursor-pointer disabled:opacity-60"
                   >
-                    Send Reset Link
+                    {isResetLoading ? 'Sending...' : 'Request Reset Code'}
                   </button>
                 </div>
               </form>
+            )}
+
+            {resetStep === 'verify' && (
+              <form onSubmit={handleVerifyOtp} className="space-y-3 text-xs">
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1 text-[11px] text-slate-600">
+                  <div>
+                    Verification dispatched for account <strong className="text-slate-900">{resetIdentifier}</strong>
+                    {maskedEmail ? ` (${maskedEmail})` : ''}.
+                  </div>
+                  {maskedPhone && (
+                    <div className="flex items-center gap-1 text-slate-500">
+                      <Phone className="w-3 h-3" />
+                      <span>Registered phone: <strong className="font-mono text-slate-700">{maskedPhone}</strong></span>
+                    </div>
+                  )}
+                </div>
+
+                {previewOtp && (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-950 flex items-center justify-between">
+                    <div>
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-amber-800">
+                        Verification Code (Demo Dispatch)
+                      </div>
+                      <div className="font-mono text-base font-extrabold tracking-widest mt-0.5">
+                        {previewOtp}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setOtpInput(previewOtp)}
+                      className="px-2.5 py-1 bg-white border border-amber-300 rounded-lg text-[11px] font-bold text-amber-900 hover:bg-amber-100 cursor-pointer"
+                    >
+                      Auto-fill Code
+                    </button>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    6-Digit Verification Code *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={6}
+                    value={otpInput}
+                    onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, ''))}
+                    placeholder="6-digit OTP"
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-emerald-600 font-mono tracking-widest text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Last 4 Digits of Registered Phone *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={4}
+                    value={phoneLast4Input}
+                    onChange={(e) => setPhoneLast4Input(e.target.value.replace(/\D/g, ''))}
+                    placeholder="e.g. 0001"
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-emerald-600 font-mono tracking-widest text-sm"
+                  />
+                </div>
+
+                <div className="pt-2 flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setResetStep('request');
+                      setResetError(null);
+                    }}
+                    className="px-3 py-2 text-slate-600 hover:text-slate-900 font-semibold flex items-center gap-1 cursor-pointer"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>Back</span>
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isResetLoading}
+                    className="px-4 py-2 bg-emerald-700 text-white font-bold rounded-lg shadow-xs hover:bg-emerald-800 cursor-pointer disabled:opacity-60"
+                  >
+                    {isResetLoading ? 'Verifying...' : 'Verify Identity'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {resetStep === 'confirm' && (
+              <form onSubmit={handleConfirmReset} className="space-y-3 text-xs">
+                <p className="text-slate-600">
+                  Identity verified. Choose a strong new password (minimum 8 characters).
+                </p>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    New Password *
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    minLength={8}
+                    value={newResetPassword}
+                    onChange={(e) => setNewResetPassword(e.target.value)}
+                    placeholder="Minimum 8 characters"
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-emerald-600 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Confirm New Password *
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    minLength={8}
+                    value={confirmResetPassword}
+                    onChange={(e) => setConfirmResetPassword(e.target.value)}
+                    placeholder="Re-enter new password"
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-emerald-600 font-mono"
+                  />
+                </div>
+                <div className="pt-2 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowForgotModal(false)}
+                    className="px-3.5 py-2 bg-slate-100 text-slate-700 rounded-lg font-semibold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isResetLoading}
+                    className="px-4 py-2 bg-emerald-700 text-white font-bold rounded-lg shadow-xs hover:bg-emerald-800 cursor-pointer disabled:opacity-60"
+                  >
+                    {isResetLoading ? 'Updating...' : 'Reset Password'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {resetStep === 'done' && (
+              <div className="p-4 bg-emerald-50 text-emerald-900 rounded-xl border border-emerald-200 text-xs text-center space-y-2.5 animate-fade-in">
+                <CheckCircle2 className="w-8 h-8 text-emerald-600 mx-auto" />
+                <div className="font-bold text-sm">Password Reset Successful</div>
+                <p className="text-[11px] text-emerald-800">
+                  Your password for <strong>{resetIdentifier}</strong> has been updated securely. You can now log in with your new password.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowForgotModal(false)}
+                  className="mt-2 px-5 py-2 bg-emerald-700 text-white font-bold rounded-lg hover:bg-emerald-800 cursor-pointer"
+                >
+                  Return to Login
+                </button>
+              </div>
             )}
           </div>
         </div>

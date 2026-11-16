@@ -240,3 +240,37 @@ export const TeacherEvaluationModel = mongoose.model<ITeacherEvaluationDoc>(
   'TeacherEvaluation',
   TeacherEvaluationSchema
 );
+
+// Secure Password Reset Token / OTP Session
+export interface IPasswordResetToken extends Document {
+  id: string;
+  userId: string;
+  otpHash: string;
+  resetTokenHash?: string;
+  expiresAt: Date;
+  attempts: number;
+  maxAttempts: number;
+  verified: boolean;
+  used: boolean;
+  createdAt: Date;
+}
+
+const PasswordResetTokenSchema = new Schema<IPasswordResetToken>(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    userId: { type: String, required: true, index: true },
+    otpHash: { type: String, required: true },
+    resetTokenHash: { type: String },
+    expiresAt: { type: Date, required: true },
+    attempts: { type: Number, default: 0 },
+    maxAttempts: { type: Number, default: 5 },
+    verified: { type: Boolean, default: false },
+    used: { type: Boolean, default: false },
+  },
+  { timestamps: true }
+);
+
+export const PasswordResetToken = mongoose.model<IPasswordResetToken>(
+  'PasswordResetToken',
+  PasswordResetTokenSchema
+);

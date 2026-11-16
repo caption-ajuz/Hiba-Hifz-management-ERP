@@ -1,6 +1,7 @@
 import React from 'react';
 import { INSTITUTION_INFO } from '../data/mockData';
 import { Student, ClassBatch, HifzRecord, UserProfile } from '../types';
+import { getUsthadEffectiveClassIds, sortBatchesWithPriority } from '../utils/batchUtils';
 import {
   CalendarCheck,
   BookOpen,
@@ -35,14 +36,27 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   onOpenTimetable,
   onNavigate,
 }) => {
-  // Assigned students
-  const assignedBatchIds = currentUser.assignedClassIds || ['batch-a', 'batch-b'];
-  const myStudents = students.filter((s) => assignedBatchIds.includes(s.classId));
+  // Dynamically resolved assigned batches and students
+  const assignedBatchIds = getUsthadEffectiveClassIds(currentUser, classes);
+  const assignedBatches = sortBatchesWithPriority(
+    classes.filter((c) => assignedBatchIds.includes(c.id))
+  );
+  const assignedBatchLabel =
+    assignedBatches.length > 0
+      ? assignedBatches.map((b) => b.name.split('(')[0].trim()).join(' & ')
+      : 'Assigned Batches';
+
+  const myStudents = students.filter(
+    (s) =>
+      assignedBatchIds.includes(s.classId) ||
+      s.assignedTeacherId === currentUser.id ||
+      (currentUser.referenceId && s.assignedTeacherId === currentUser.referenceId)
+  );
 
   // Students with revision required in their recent records
   const studentsNeedingRevision = records
     .filter((r) => r.status === 'Revision Required')
-    .map((r) => students.find((s) => s.id === r.studentId))
+    .map((r) => myStudents.find((s) => s.id === r.studentId))
     .filter((s): s is Student => Boolean(s));
 
   return (
@@ -67,7 +81,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               {currentUser.arabicName} · {INSTITUTION_INFO.name}
             </div>
             <div className="text-[11px] sm:text-xs text-emerald-200/90 mt-1">
-              Active Batches: <strong>Batch A</strong> & <strong>Batch B</strong>
+              Active Batches: <strong>{assignedBatchLabel}</strong>
             </div>
           </div>
         </div>
@@ -100,7 +114,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           <div className="text-2xl sm:text-3xl font-extrabold font-mono text-slate-900 mt-1 tabular-nums">
             {myStudents.length}
           </div>
-          <div className="text-[11px] text-emerald-700 font-medium mt-1">Batch A & Batch B roster</div>
+          <div className="text-[11px] text-emerald-700 font-medium mt-1 truncate">
+            {assignedBatchLabel}
+          </div>
         </div>
 
         <div className="bg-white p-4.5 rounded-2xl border border-slate-200 shadow-xs">
@@ -196,8 +212,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div>
-              <h2 className="text-sm font-bold text-slate-900">My Students Roster (Batch A)</h2>
-              <p className="text-xs text-slate-500">Active students in your morning Sabq & afternoon Manzil classes</p>
+              <h2 className="text-sm font-bold text-slate-900">
+                My Students Roster ({assignedBatchLabel})
+              </h2>
+              <p className="text-xs text-slate-500">Active students in your assigned Tahfeez batches</p>
             </div>
             <button
               onClick={() => onNavigate('students')}

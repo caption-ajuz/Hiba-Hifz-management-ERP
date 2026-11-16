@@ -1,6 +1,14 @@
-import React, { useState } from 'react';
-import { Student, ClassBatch, Teacher, UserProfile } from '../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Student, ClassBatch, Teacher, UserProfile, Campus } from '../types';
 import { api, getAuthToken } from '../services/api';
+import {
+  FacultyMentorOption,
+  formatDefaultStudentPassword,
+  getFacultyDisplayList,
+  getUsthadEffectiveClassIds,
+  parseCsvRows,
+  sortBatchesWithPriority,
+} from '../utils/batchUtils';
 import {
   GraduationCap,
   Search,
@@ -27,6 +35,8 @@ import {
   Edit2,
   Trash2,
   Layers,
+  ChevronDown,
+  KeyRound,
 } from 'lucide-react';
 
 interface StudentManagementProps {
@@ -34,8 +44,9 @@ interface StudentManagementProps {
   classes: ClassBatch[];
   teachers: Teacher[];
   currentUser: UserProfile;
+  assignedCampus?: Campus;
   onOpenIdCard: (student: Student) => void;
-  onAddStudent: (student: Student) => void;
+  onAddStudent: (student: Student) => Promise<void> | void;
   onUpdateStudent?: (student: Student) => void;
   onDeleteStudent?: (id: string) => void;
   onAddClass?: (newClass: ClassBatch) => void;
@@ -47,6 +58,7 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
   classes,
   teachers,
   currentUser,
+  assignedCampus,
   onOpenIdCard,
   onAddStudent,
   onUpdateStudent,
@@ -55,17 +67,47 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
   onRefreshStudents,
 }) => {
   const isUsthad = currentUser.role === 'USTHAD';
-  const assignedClassIds = currentUser.assignedClassIds || ['batch-a'];
+  const assignedClassIds = useMemo(
+    () => getUsthadEffectiveClassIds(currentUser, classes),
+    [currentUser, classes]
+  );
+
+  // Ordered batches: Batch A first, Batch B second, then others
+  const sortedClasses = useMemo(() => sortBatchesWithPriority(classes), [classes]);
 
   // Available classes for filtering and creation based on role
-  const availableClasses = isUsthad
-    ? classes.filter((c) => assignedClassIds.includes(c.id))
-    : classes;
+  const availableClasses = useMemo(
+    () => (isUsthad ? sortedClasses.filter((c) => assignedClassIds.includes(c.id)) : sortedClasses),
+    [isUsthad, sortedClasses, assignedClassIds]
+  );
+
+  // Mentors including Campus Mudeer + Usthads
+  const [apiMentors, setApiMentors] = useState<FacultyMentorOption[]>([]);
+  useEffect(() => {
+    let active = true;
+    api
+      .getClassMentors(currentUser.campusId)
+      .then((list) => {
+        if (active && Array.isArray(list)) setApiMentors(list);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [currentUser.campusId, teachers.length]);
+
+  const facultyMentors = useMemo(
+    () => getFacultyDisplayList(teachers, currentUser, assignedCampus, apiMentors),
+    [teachers, currentUser, assignedCampus, apiMentors]
+  );
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedClassFilter, setSelectedClassFilter] = useState<string>(
-    isUsthad && availableClasses.length > 0 ? availableClasses[0].id : 'ALL'
-  );
+  const [selectedClassFilter, setSelectedClassFilter] = useState<string>('ALL');
+
+  // Inline Batch Editor state
+  const [editingBatchStudentId, setEditingBatchStudentId] = useState<string | null>(null);
+  const [savingBatchStudentId, setSavingBatchStudentId] = useState<string | null>(null);
+  const [statusNotice, setStatusNotice] = useState<string | null>(null);
 
   // Modals
   const [showAddModal, setShowAddModal] = useState(false);
@@ -113,7 +155,6 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
   const [batchName, setBatchName] = useState('');
   const [batchArabicName, setBatchArabicName] = useState('');
   const [batchUsthadId, setBatchUsthadId] = useState(teachers[0]?.id || 'usr_teacher_01');
-  const [batchRoom, setBatchRoom] = useState('Hall 101');
   const [batchCapacity, setBatchCapacity] = useState(30);
   const [batchAcademicYear, setBatchAcademicYear] = useState('2026 - 2027');
   const [isSubmittingBatch, setIsSubmittingBatch] = useState(false);
@@ -197,8 +238,7 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
     setBatchToEdit(null);
     setBatchName('');
     setBatchArabicName('');
-    setBatchUsthadId(isUsthad ? currentUser.id : teachers[0]?.id || 'usr_teacher_01');
-    setBatchRoom('Hall 104');
+    setBatchUsthadId(isUsthad ? currentUser.id : facultyMentors[0]?.id || teachers[0]?.id || 'usr_teacher_01');
     setBatchCapacity(30);
     setBatchAcademicYear('2026 - 2027');
     setBatchError(null);
@@ -210,7 +250,6 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
     setBatchName(batch.name);
     setBatchArabicName(batch.arabicName || '');
     setBatchUsthadId(batch.usthadId);
-    setBatchRoom(batch.roomNumber || 'Hall 101');
     setBatchCapacity(batch.capacity || 30);
     setBatchAcademicYear(batch.academicYear || '2026 - 2027');
     setBatchError(null);
@@ -226,21 +265,19 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
         name: batchName,
         arabicName: batchArabicName || batchName,
         usthadId: batchUsthadId,
-        roomNumber: batchRoom,
         capacity: Number(batchCapacity),
         academicYear: batchAcademicYear,
-        campusId: 'campus-main',
+        campusId: currentUser.campusId || 'campus-main',
       };
 
       if (batchToEdit) {
-        const updated = await api.updateClass(batchToEdit.id, payload);
+        await api.updateClass(batchToEdit.id, payload);
         if (onRefreshStudents) onRefreshStudents();
         setShowBatchModal(false);
       } else {
         const created = await api.createClass(payload);
         if (onAddClass) onAddClass(created);
         if (onRefreshStudents) onRefreshStudents();
-        // Automatically select the new batch in student enrollment
         setClassId(created.id);
         setEditClassId(created.id);
         setShowBatchModal(false);
@@ -249,6 +286,29 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
       setBatchError(err.message || 'Failed to save batch');
     } finally {
       setIsSubmittingBatch(false);
+    }
+  };
+
+  // Inline Batch Quick-Change (Auto-Saves immediately without a Save button)
+  const handleQuickBatchChange = async (student: Student, nextClassId: string) => {
+    setEditingBatchStudentId(null);
+    if (!nextClassId || nextClassId === student.classId) return;
+
+    setSavingBatchStudentId(student.id);
+    try {
+      const updated = await api.updateStudent(student.id, { classId: nextClassId });
+      if (onUpdateStudent) onUpdateStudent(updated);
+      if (onRefreshStudents) onRefreshStudents();
+      const targetBatch = classes.find((c) => c.id === nextClassId);
+      setStatusNotice(
+        `${student.fullName} moved to ${targetBatch?.name.split('(')[0].trim() || nextClassId}.`
+      );
+      setTimeout(() => setStatusNotice(null), 3500);
+    } catch (err: any) {
+      setStatusNotice(`Failed to update batch: ${err.message}`);
+      setTimeout(() => setStatusNotice(null), 4000);
+    } finally {
+      setSavingBatchStudentId(null);
     }
   };
 
@@ -277,63 +337,129 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
     }
   };
 
+  // Students visible to current role before search/filter
+  const roleVisibleStudents = useMemo(() => {
+    if (!isUsthad) return students;
+    return students.filter(
+      (s) =>
+        assignedClassIds.includes(s.classId) ||
+        s.assignedTeacherId === currentUser.id ||
+        (currentUser.referenceId && s.assignedTeacherId === currentUser.referenceId)
+    );
+  }, [students, isUsthad, assignedClassIds, currentUser.id, currentUser.referenceId]);
+
   // Filter students based on role and active filters
-  const filteredStudents = students.filter((s) => {
-    // If Usthad, only allow viewing assigned classes
-    if (isUsthad && !assignedClassIds.includes(s.classId)) {
-      return false;
+  const filteredStudents = useMemo(() => {
+    return roleVisibleStudents.filter((s) => {
+      if (selectedClassFilter !== 'ALL' && s.classId !== selectedClassFilter) {
+        return false;
+      }
+
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        return (
+          s.fullName.toLowerCase().includes(q) ||
+          s.admissionNumber.toLowerCase().includes(q) ||
+          s.rollNumber.toString().includes(q) ||
+          (s.parentName || '').toLowerCase().includes(q) ||
+          (s.arabicName && s.arabicName.includes(q))
+        );
+      }
+      return true;
+    });
+  }, [roleVisibleStudents, selectedClassFilter, searchQuery]);
+
+  // Group filtered students by Batch (Batch A first, Batch B second, then others)
+  const groupedStudentBatches = useMemo(() => {
+    const groups: Array<{
+      batchId: string;
+      batch?: ClassBatch;
+      batchLabel: string;
+      arabicName?: string;
+      mentor?: FacultyMentorOption;
+      students: Student[];
+    }> = [];
+
+    const assignedIds = new Set<string>();
+    const targetBatches = isUsthad ? availableClasses : sortedClasses;
+
+    targetBatches.forEach((batch) => {
+      if (selectedClassFilter !== 'ALL' && batch.id !== selectedClassFilter) return;
+      const batchStudents = filteredStudents
+        .filter((s) => s.classId === batch.id)
+        .sort((a, b) => a.rollNumber - b.rollNumber);
+
+      if (batchStudents.length > 0 || (selectedClassFilter === 'ALL' && !searchQuery.trim())) {
+        batchStudents.forEach((s) => assignedIds.add(s.id));
+        const mentor = facultyMentors.find(
+          (m) => m.id === batch.usthadId || m.teacherId === batch.usthadId
+        );
+        groups.push({
+          batchId: batch.id,
+          batch,
+          batchLabel: batch.name,
+          arabicName: batch.arabicName,
+          mentor,
+          students: batchStudents,
+        });
+      }
+    });
+
+    const ungrouped = filteredStudents
+      .filter((s) => !assignedIds.has(s.id))
+      .sort((a, b) => a.rollNumber - b.rollNumber);
+
+    if (ungrouped.length > 0) {
+      groups.push({
+        batchId: 'unassigned',
+        batchLabel: 'Other / Unassigned Batch',
+        students: ungrouped,
+      });
     }
 
-    if (selectedClassFilter !== 'ALL' && s.classId !== selectedClassFilter) {
-      return false;
-    }
+    return groups;
+  }, [filteredStudents, availableClasses, sortedClasses, isUsthad, selectedClassFilter, searchQuery, facultyMentors]);
 
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      return (
-        s.fullName.toLowerCase().includes(q) ||
-        s.admissionNumber.includes(q) ||
-        s.rollNumber.toString().includes(q) ||
-        s.parentName.toLowerCase().includes(q) ||
-        (s.arabicName && s.arabicName.includes(q))
-      );
-    }
-    return true;
-  });
-
-  const handleCreateStudent = (e: React.FormEvent) => {
+  const handleCreateStudent = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Verify Usthad is enrolling into permitted class
     if (isUsthad && !assignedClassIds.includes(classId)) {
-      alert('You can only enroll students into your assigned class.');
+      setStatusNotice('You can only enroll students into your assigned batch.');
       return;
     }
 
+    const selectedBatch = classes.find((c) => c.id === classId);
     const newStudent: Student = {
       id: `std_${Date.now()}`,
       rollNumber: Number(rollNumber),
-      admissionNumber: admissionNumber,
-      fullName: fullName,
-      arabicName: arabicName || fullName,
+      admissionNumber: admissionNumber.trim(),
+      fullName: fullName.trim(),
+      arabicName: arabicName.trim() || fullName.trim(),
       photo: photoUrl,
+      photoPublicId,
       dateOfBirth: dob,
       gender: gender,
-      parentName: parentName,
-      parentPhone: parentPhone,
-      parentEmail: `${fullName.toLowerCase().replace(/\s+/g, '.')}@gmail.com`,
+      parentName: parentName.trim(),
+      parentPhone: parentPhone.trim(),
+      parentEmail: `${fullName.toLowerCase().replace(/[^a-z0-9]+/g, '.')}@gmail.com`,
       admissionDate: new Date().toISOString().split('T')[0],
-      campusId: 'campus-main',
+      campusId: currentUser.campusId || 'campus-main',
       classId: classId,
-      assignedTeacherId: isUsthad ? currentUser.id : 'usr_teacher_01',
+      assignedTeacherId:
+        selectedBatch?.usthadId || (isUsthad ? currentUser.id : teachers[0]?.id || 'usr_teacher_01'),
       accountStatus: 'Active',
       currentJuz: 1,
-      completedJuzList: [30],
-      totalMemorizedAyahs: 564,
+      completedJuzList: [],
+      totalMemorizedAyahs: 0,
       attendanceRate: 100,
     };
 
-    onAddStudent(newStudent);
+    await onAddStudent(newStudent);
+    const defaultPass = formatDefaultStudentPassword(newStudent.admissionNumber, newStudent.dateOfBirth);
+    setStatusNotice(
+      `Enrolled ${newStudent.fullName}. Student Login → Username: ${newStudent.admissionNumber.toLowerCase()} | Default Password: ${defaultPass}`
+    );
+    setTimeout(() => setStatusNotice(null), 8000);
     setShowAddModal(false);
     setFullName('');
     setArabicName('');
@@ -341,26 +467,6 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
   };
 
   // CSV Import Helpers
-  const parseCsvText = (text: string) => {
-    const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
-    if (lines.length < 2) return [];
-
-    const headers = lines[0].split(',').map((h) => h.replace(/^["']|["']$/g, '').trim());
-    const parsedRows: any[] = [];
-
-    for (let i = 1; i < lines.length; i++) {
-      const currentline = lines[i].split(',').map((c) => c.replace(/^["']|["']$/g, '').trim());
-      if (currentline.length === headers.length) {
-        const obj: any = {};
-        for (let j = 0; j < headers.length; j++) {
-          obj[headers[j]] = currentline[j];
-        }
-        parsedRows.push(obj);
-      }
-    }
-    return parsedRows;
-  };
-
   const handleCsvFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -371,7 +477,7 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
 
     try {
       const text = await file.text();
-      const rows = parseCsvText(text);
+      const rows = parseCsvRows(text);
 
       if (rows.length === 0) {
         alert('Invalid or empty CSV format. Please ensure headers match the required template.');
@@ -379,7 +485,6 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
         return;
       }
 
-      // Call API preview mode
       const preview = await api.importStudentsCSV(rows, false);
       setCsvPreviewData({ ...preview, originalRows: rows });
     } catch (err: any) {
@@ -408,10 +513,10 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
 
   const handleDownloadSampleCsv = () => {
     const templateContent = [
-      'student_id,full_name,arabic_name,date_of_birth,gender,phone,parent_name,parent_phone,campus,class',
-      '24831,Bilal Mohammed,بلال محمد,2011-03-15,Male,+91 94470 12001,Mohammed Ali,+91 94470 12001,campus-main,batch-a',
-      '24832,Yusuf Ahmed,يوسف أحمد,2011-07-22,Male,+91 94470 12002,Ahmed Raza,+91 94470 12002,campus-main,batch-a',
-      '24833,Mustafa Kamal,مصطفى كمال,2010-11-05,Male,+91 94470 12003,Kamal Hassan,+91 94470 12003,campus-main,batch-b',
+      'admission_number,full_name,arabic_name,date_of_birth,gender,parent_name,parent_phone,batch',
+      '24831,Bilal Mohammed,بلال محمد,2011-03-15,Male,Mohammed Ali,+91 94470 12001,A',
+      '24832,Yusuf Ahmed,يوسف أحمد,2011-07-22,Male,Ahmed Raza,+91 94470 12002,A',
+      '24833,Mustafa Kamal,مصطفى كمال,2010-11-05,Male,Kamal Hassan,+91 94470 12003,B',
     ].join('\n');
 
     const blob = new Blob([templateContent], { type: 'text/csv;charset=utf-8;' });
@@ -428,9 +533,7 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
     try {
       const token = getAuthToken();
       const params = new URLSearchParams();
-      if (isUsthad) {
-        params.set('classId', selectedClassFilter !== 'ALL' ? selectedClassFilter : assignedClassIds[0]);
-      } else if (selectedClassFilter !== 'ALL') {
+      if (selectedClassFilter !== 'ALL') {
         params.set('classId', selectedClassFilter);
       }
 
@@ -500,7 +603,7 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
           <p className="text-xs text-slate-500 mt-0.5 hidden sm:block">
             {isUsthad
               ? 'Manage students enrolled in your assigned Tahfeez classes, review progress, and update profiles.'
-              : 'Browse enrolled Hifz students across all campuses, bulk import rosters, and generate ID cards.'}
+              : 'Manage enrolled Hifz students in your assigned campus, import rosters, and generate student ID cards.'}
           </p>
         </div>
 
@@ -542,6 +645,23 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
         </div>
       </div>
 
+      {/* Status / Auto-save / Enrollment Notice */}
+      {statusNotice && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 px-4 py-2.5 rounded-xl text-xs font-medium flex items-center justify-between gap-2 shadow-2xs">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+            <span>{statusNotice}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setStatusNotice(null)}
+            className="text-emerald-700 hover:text-emerald-950 font-bold cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Filter and Search Bar */}
       <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
         <div className="relative w-full sm:w-80">
@@ -562,7 +682,11 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
             onChange={(e) => setSelectedClassFilter(e.target.value)}
             className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1 text-xs text-slate-700 focus:outline-hidden font-medium"
           >
-            {!isUsthad && <option value="ALL">All Batches ({students.length})</option>}
+            <option value="ALL">
+              {isUsthad
+                ? `All Assigned Batches (${roleVisibleStudents.length})`
+                : `All Batches (${roleVisibleStudents.length})`}
+            </option>
             {availableClasses.map((cls) => (
               <option key={cls.id} value={cls.id}>
                 {cls.name}
@@ -572,7 +696,7 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
         </div>
       </div>
 
-      {/* Students Table */}
+      {/* Students Table — Grouped by Batch (Batch A first, Batch B second) */}
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -580,7 +704,7 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
               <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-[11px] uppercase tracking-wider">
                 <th className="py-3 px-4 font-semibold">Roll & Student</th>
                 <th className="py-3 px-4 font-semibold">Admission #</th>
-                <th className="py-3 px-4 font-semibold">Batch</th>
+                <th className="py-3 px-4 font-semibold">Batch (Click to Edit)</th>
                 <th className="py-3 px-4 font-semibold">Current Juz</th>
                 <th className="py-3 px-4 font-semibold">Total Completed</th>
                 <th className="py-3 px-4 font-semibold">Attendance</th>
@@ -589,94 +713,181 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
-              {filteredStudents.length > 0 ? (
-                filteredStudents.map((std) => {
-                  const cls = classes.find((c) => c.id === std.classId);
-                  return (
-                    <tr key={std.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-3">
-                          <span className="w-6 text-center font-mono font-bold text-slate-400">
-                            #{std.rollNumber}
-                          </span>
-                          <img
-                            src={std.photo || '/assets/images/avatar_student_male_1794118079992.jpg'}
-                            alt={std.fullName}
-                            className="w-9 h-9 rounded-full object-cover border border-slate-200"
-                            referrerPolicy="no-referrer"
-                            onError={(e) => {
-                              e.currentTarget.src = '/assets/images/avatar_student_male_1794118079992.jpg';
-                            }}
-                          />
-                          <div>
-                            <div className="font-bold text-slate-900">{std.fullName}</div>
-                            <div className="text-[10px] text-slate-400 font-arabic">{std.arabicName}</div>
+              {groupedStudentBatches.length > 0 && filteredStudents.length > 0 ? (
+                groupedStudentBatches.map((group) => (
+                  <React.Fragment key={group.batchId}>
+                    {/* Batch Group Header Row */}
+                    <tr className="bg-emerald-50/70 border-y border-emerald-200/80">
+                      <td colSpan={8} className="py-2.5 px-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <Layers className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                            <span className="font-extrabold text-emerald-950 text-xs">
+                              {group.batchLabel}
+                            </span>
+                            {group.arabicName && (
+                              <span className="text-[11px] text-emerald-700 font-arabic hidden sm:inline">
+                                · {group.arabicName}
+                              </span>
+                            )}
+                            <span className="text-[11px] font-mono font-bold bg-white text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-md">
+                              {group.students.length} {group.students.length === 1 ? 'Student' : 'Students'}
+                            </span>
                           </div>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 font-mono font-medium text-slate-600">
-                        {std.admissionNumber}
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="text-slate-800 font-medium">
-                          {cls?.name.split('(')[0] || 'Batch A'}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200/60 font-mono">
-                          Juz {std.currentJuz}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 font-mono font-medium text-slate-700">
-                        {std.completedJuzList?.length || 0} / 30 Juz
-                      </td>
-                      <td className="py-3 px-4">
-                        <span
-                          className={`font-bold font-mono ${
-                            (std.attendanceRate || 95) >= 95 ? 'text-emerald-700' : 'text-amber-700'
-                          }`}
-                        >
-                          {std.attendanceRate || 95}%
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="text-[11px] text-slate-700 font-medium">{std.parentName}</div>
-                        <div className="text-[10px] text-slate-400 font-mono">{std.parentPhone}</div>
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={() => onOpenIdCard(std)}
-                            className="px-2 py-1 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1"
-                            title="View Digital Student ID Card"
-                          >
-                            <IdCard className="w-3.5 h-3.5" />
-                            <span className="hidden sm:inline">ID</span>
-                          </button>
-
-                          {(!isUsthad || (currentUser.assignedClassIds?.includes(std.classId) || std.assignedTeacherId === currentUser.id)) && (
-                            <>
-                              <button
-                                onClick={() => openEditStudent(std)}
-                                className="p-1 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
-                                title="Edit Student Profile"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => setStudentToDelete(std)}
-                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                                title="Delete Student Record"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </>
+                          {group.mentor && (
+                            <div className="flex items-center gap-1.5 text-[11px] text-slate-700">
+                              <span className="text-slate-400">Mentor:</span>
+                              <span className="font-semibold text-slate-900">{group.mentor.fullName}</span>
+                              {group.mentor.roleType === 'MUDEER' && (
+                                <span className="text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-200 px-1.5 py-0.2 rounded">
+                                  Mudeer · Faculty
+                                </span>
+                              )}
+                            </div>
                           )}
                         </div>
                       </td>
                     </tr>
-                  );
-                })
+
+                    {group.students.length > 0 ? (
+                      group.students.map((std) => {
+                        const cls = classes.find((c) => c.id === std.classId);
+                        const canEditRow =
+                          !isUsthad ||
+                          assignedClassIds.includes(std.classId) ||
+                          std.assignedTeacherId === currentUser.id;
+                        const batchChoices = sortedClasses;
+                        const isEditingThisBatch = editingBatchStudentId === std.id;
+                        const isSavingThisBatch = savingBatchStudentId === std.id;
+
+                        return (
+                          <tr key={std.id} className="hover:bg-slate-50/80 transition-colors">
+                            <td className="py-3 px-4">
+                              <div className="flex items-center gap-3">
+                                <span className="w-6 text-center font-mono font-bold text-slate-400">
+                                  #{std.rollNumber}
+                                </span>
+                                <img
+                                  src={std.photo || '/assets/images/avatar_student_male_1794118079992.jpg'}
+                                  alt={std.fullName}
+                                  className="w-9 h-9 rounded-full object-cover border border-slate-200"
+                                  referrerPolicy="no-referrer"
+                                  onError={(e) => {
+                                    e.currentTarget.src = '/assets/images/avatar_student_male_1794118079992.jpg';
+                                  }}
+                                />
+                                <div>
+                                  <div className="font-bold text-slate-900">{std.fullName}</div>
+                                  <div className="text-[10px] text-slate-400 font-arabic">{std.arabicName}</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="py-3 px-4 font-mono font-medium text-slate-600">
+                              {std.admissionNumber}
+                            </td>
+                            <td className="py-3 px-4">
+                              {isEditingThisBatch ? (
+                                <select
+                                  autoFocus
+                                  value={std.classId}
+                                  onChange={(e) => handleQuickBatchChange(std, e.target.value)}
+                                  onBlur={() => setEditingBatchStudentId(null)}
+                                  aria-label={`Select batch for ${std.fullName}`}
+                                  className="bg-white border border-emerald-500 rounded-lg px-2 py-1 text-xs font-semibold text-slate-900 focus:outline-hidden shadow-2xs cursor-pointer"
+                                >
+                                  {batchChoices.map((b) => (
+                                    <option key={b.id} value={b.id}>
+                                      {b.name.split('(')[0].trim()}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={!canEditRow || isSavingThisBatch}
+                                  onClick={() => canEditRow && setEditingBatchStudentId(std.id)}
+                                  title={canEditRow ? 'Click to change student batch (auto-saves)' : undefined}
+                                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-semibold transition-colors ${
+                                    canEditRow
+                                      ? 'bg-slate-50 hover:bg-emerald-50 text-slate-800 hover:text-emerald-900 border-slate-200 hover:border-emerald-300 cursor-pointer'
+                                      : 'bg-slate-50 text-slate-700 border-slate-200 cursor-default'
+                                  }`}
+                                >
+                                  {isSavingThisBatch ? (
+                                    <Loader2 className="w-3 h-3 animate-spin text-emerald-700" />
+                                  ) : (
+                                    <>
+                                      <span>{cls?.name.split('(')[0].trim() || std.classId || 'Batch A'}</span>
+                                      {canEditRow && <ChevronDown className="w-3 h-3 text-slate-400" />}
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className="font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200/60 font-mono">
+                                Juz {std.currentJuz}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 font-mono font-medium text-slate-700">
+                              {std.completedJuzList?.length || 0} / 30 Juz
+                            </td>
+                            <td className="py-3 px-4">
+                              <span
+                                className={`font-bold font-mono ${
+                                  (std.attendanceRate || 95) >= 95 ? 'text-emerald-700' : 'text-amber-700'
+                                }`}
+                              >
+                                {std.attendanceRate || 95}%
+                              </span>
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="text-[11px] text-slate-700 font-medium">{std.parentName}</div>
+                              <div className="text-[10px] text-slate-400 font-mono">{std.parentPhone}</div>
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  onClick={() => onOpenIdCard(std)}
+                                  className="px-2 py-1 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1"
+                                  title="View Digital Student ID Card"
+                                >
+                                  <IdCard className="w-3.5 h-3.5" />
+                                  <span className="hidden sm:inline">ID</span>
+                                </button>
+
+                                {canEditRow && (
+                                  <>
+                                    <button
+                                      onClick={() => openEditStudent(std)}
+                                      className="p-1 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                                      title="Edit Student Profile"
+                                    >
+                                      <Edit2 className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => setStudentToDelete(std)}
+                                      className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                      title="Delete Student Record"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan={8} className="py-4 px-4 text-center text-slate-400 text-[11px] italic">
+                          No students currently assigned to {group.batchLabel}.
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                ))
               ) : (
                 <tr>
                   <td colSpan={8} className="py-8 text-center text-slate-400 text-xs">
@@ -708,16 +919,19 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
 
             <div className="p-6 space-y-4 max-h-[80vh] overflow-y-auto text-xs">
               {/* Step 1: Download Template */}
-              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between gap-3">
+              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
-                  <div className="font-bold text-slate-900">1. Download CSV Sample Template</div>
+                  <div className="font-bold text-slate-900">1. Download Admission CSV Template</div>
                   <div className="text-[11px] text-slate-500 mt-0.5">
-                    Includes columns: student_id, full_name, date_of_birth, gender, phone, parent_name, parent_phone, campus, class
+                    Required columns: <span className="font-mono text-slate-700">admission_number, full_name, date_of_birth, gender, parent_name, parent_phone, batch</span>
+                  </div>
+                  <div className="text-[11px] text-emerald-800 mt-1">
+                    Batch column accepts <strong>A</strong> (= Batch A) or <strong>B</strong> (= Batch B). Default login password is set to <span className="font-mono">&lt;AdmissionNumber&gt;@&lt;YYYY-MM-DD&gt;</span>.
                   </div>
                 </div>
                 <button
                   onClick={handleDownloadSampleCsv}
-                  className="px-3 py-1.5 bg-white border border-slate-300 hover:border-emerald-600 text-slate-700 hover:text-emerald-800 rounded-lg font-semibold flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  className="px-3 py-1.5 bg-white border border-slate-300 hover:border-emerald-600 text-slate-700 hover:text-emerald-800 rounded-lg font-semibold flex items-center gap-1.5 cursor-pointer shadow-2xs shrink-0 self-start sm:self-center"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>Download Template</span>
@@ -751,7 +965,7 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
               {isParsingCsv && (
                 <div className="p-3 bg-emerald-50 rounded-xl text-emerald-800 text-center flex items-center justify-center gap-2">
                   <Loader2 className="w-4 h-4 animate-spin text-emerald-700" />
-                  <span>Validating CSV structure and checking for duplicate students...</span>
+                  <span>Validating CSV structure, matching batches, and checking duplicates...</span>
                 </div>
               )}
 
@@ -759,7 +973,7 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
               {csvPreviewData && !importSuccessSummary && (
                 <div className="space-y-3 pt-2 border-t border-slate-100">
                   <div className="font-bold text-slate-900 flex items-center justify-between">
-                    <span>3. Validation & Duplication Preview</span>
+                    <span>3. Validation, Batch Mapping & Password Preview</span>
                     <span className="font-mono text-slate-500">{csvPreviewData.summary.totalRows} Total Rows</span>
                   </div>
 
@@ -783,6 +997,32 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
                       </div>
                     </div>
                   </div>
+
+                  {/* Preview of Batch Assignments & Default Student Passwords */}
+                  {Array.isArray(csvPreviewData.successfulRows) && csvPreviewData.successfulRows.length > 0 && (
+                    <div className="rounded-xl border border-slate-200 overflow-hidden">
+                      <table className="w-full text-left text-[11px]">
+                        <thead className="bg-slate-50 text-slate-500 uppercase">
+                          <tr>
+                            <th className="py-2 px-2.5">Adm #</th>
+                            <th className="py-2 px-2.5">Student Name</th>
+                            <th className="py-2 px-2.5">Assigned Batch</th>
+                            <th className="py-2 px-2.5">Default Password</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {csvPreviewData.successfulRows.slice(0, 6).map((row: any, idx: number) => (
+                            <tr key={idx}>
+                              <td className="py-1.5 px-2.5 font-mono font-semibold text-slate-700">{row.admissionNumber}</td>
+                              <td className="py-1.5 px-2.5 font-semibold text-slate-900">{row.fullName}</td>
+                              <td className="py-1.5 px-2.5 text-emerald-800 font-semibold">{row.batchLabel}</td>
+                              <td className="py-1.5 px-2.5 font-mono text-slate-600">{row.defaultPasswordPreview}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
 
                   {/* Errors / Warnings List if any */}
                   {(csvPreviewData.summary.duplicateCount > 0 || csvPreviewData.summary.failedCount > 0) && (
@@ -1048,6 +1288,17 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
                 />
               </div>
 
+              <div className="p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-xl text-[11px] text-emerald-900 flex items-center gap-2">
+                <KeyRound className="w-4 h-4 text-emerald-700 shrink-0" />
+                <span>
+                  Student portal account is automatically created using Admission # as username and{' '}
+                  <strong className="font-mono">
+                    {formatDefaultStudentPassword(admissionNumber || '<AdmNo>', dob)}
+                  </strong>{' '}
+                  as default password.
+                </span>
+              </div>
+
               <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
                 <button
                   type="button"
@@ -1185,7 +1436,7 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
                     onChange={(e) => setEditClassId(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-medium"
                   >
-                    {availableClasses.map((cls) => (
+                    {sortedClasses.map((cls) => (
                       <option key={cls.id} value={cls.id}>
                         {cls.name}
                       </option>
@@ -1357,44 +1608,31 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
 
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">
-                  Mentor Usthad
+                  Mentor Faculty (Usthad / Mudeer)
                 </label>
                 <select
                   value={batchUsthadId}
                   onChange={(e) => setBatchUsthadId(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-medium"
                 >
-                  {teachers.map((t) => (
+                  {facultyMentors.map((t) => (
                     <option key={t.id} value={t.id}>
-                      {t.fullName} ({t.teacherId})
+                      {t.fullName} {t.roleType === 'MUDEER' ? '(Mudeer · Campus Faculty)' : `(${t.teacherId})`}
                     </option>
                   ))}
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">
-                    Room / Study Hall
-                  </label>
-                  <input
-                    type="text"
-                    value={batchRoom}
-                    onChange={(e) => setBatchRoom(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">
-                    Academic Year
-                  </label>
-                  <input
-                    type="text"
-                    value={batchAcademicYear}
-                    onChange={(e) => setBatchAcademicYear(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-mono"
-                  />
-                </div>
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Academic Year
+                </label>
+                <input
+                  type="text"
+                  value={batchAcademicYear}
+                  onChange={(e) => setBatchAcademicYear(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-mono"
+                />
               </div>
 
               <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">

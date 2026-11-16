@@ -13,6 +13,10 @@ export interface ICampus extends Document {
   status: 'Active' | 'Inactive';
   establishedYear?: string;
   principalName?: string;
+  mudeerUserId?: string;
+  mudeerUsername?: string;
+  mudeerEmail?: string;
+  mudeerPhone?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -31,6 +35,10 @@ const CampusSchema = new Schema<ICampus>(
     status: { type: String, enum: ['Active', 'Inactive'], default: 'Active', index: true },
     establishedYear: { type: String, default: '1994' },
     principalName: { type: String, default: '' },
+    mudeerUserId: { type: String, default: '', index: true },
+    mudeerUsername: { type: String, default: '' },
+    mudeerEmail: { type: String, default: '' },
+    mudeerPhone: { type: String, default: '' },
   },
   {
     timestamps: true,

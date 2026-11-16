@@ -117,8 +117,8 @@ router.get('/diagnostics', async (req: Request, res: Response) => {
 // POST /api/health/retry - Allows Super Admin to trigger a reconnection attempt
 router.post('/retry', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    if (req.user?.role !== 'SUPER_ADMIN') {
-      return res.status(403).json({ success: false, error: 'Only Super Admin can retry infrastructure connections.' });
+    if (req.user?.role !== 'HYBA_SUPER_ADMIN') {
+      return res.status(403).json({ success: false, error: 'Only HYBA Super Admin can retry infrastructure connections.' });
     }
 
     lastCheckTime = 0; // invalidate cache

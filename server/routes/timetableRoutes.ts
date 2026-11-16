@@ -1,77 +1,10 @@
 import { Router, Request, Response } from 'express';
 import { TimetableSlot } from '../models/TimetableSlot';
 import { authenticate, AuthRequest, authorize, logAuditEvent } from '../middleware/auth';
+import { DEFAULT_TIMETABLE_SLOTS, isMongoReady, getRuntimeDb, saveRuntimeDb } from '../config/runtimeStore';
 import { z } from 'zod';
 
 const router = Router();
-
-const DEFAULT_TIMETABLE_SLOTS = [
-  {
-    id: 'slot_d1_1',
-    day: 'D1',
-    slotNumber: 1,
-    time: '07:00 - 08:30',
-    title: 'Sabq (السبق) · New Lesson Memorization',
-    batch: 'Hifz Batch A (Hifz Ul Uloom)',
-    room: 'Tahfeez Hall 101',
-    mentor: 'Usthad Mohammed Ajash T.',
-    color: 'bg-emerald-50 border-emerald-200 text-emerald-950',
-    tag: 'Sabq Focus',
-    classId: 'batch-a',
-  },
-  {
-    id: 'slot_d1_2',
-    day: 'D1',
-    slotNumber: 2,
-    time: '09:00 - 10:30',
-    title: 'Forenoon Murajath (المراجعة) · Recent Revision',
-    batch: 'Hifz Batch A & B',
-    room: 'Tahfeez Hall 101',
-    mentor: 'Usthad Mohammed Ajash T.',
-    color: 'bg-teal-50 border-teal-200 text-teal-950',
-    tag: 'Revision',
-    classId: 'batch-a',
-  },
-  {
-    id: 'slot_d1_3',
-    day: 'D1',
-    slotNumber: 3,
-    time: '11:00 - 12:30',
-    title: 'Tajweed Rules, Makharij & Quranic Sciences',
-    batch: 'Combined Hifz Department',
-    room: 'Auditorium Hall',
-    mentor: 'Dr. Abdul Wahab (Mudir) & Usthad Ajash',
-    color: 'bg-sky-50 border-sky-200 text-sky-950',
-    tag: 'Tajweed',
-    classId: 'batch-a',
-  },
-  {
-    id: 'slot_d1_4',
-    day: 'D1',
-    slotNumber: 4,
-    time: '14:00 - 16:00',
-    title: 'Manzil (المنزل) · Full Juz Cumulative Revision',
-    batch: 'Hifz Batch A',
-    room: 'Tahfeez Hall 101',
-    mentor: 'Usthad Mohammed Ajash T.',
-    color: 'bg-amber-50 border-amber-200 text-amber-950',
-    tag: 'Manzil',
-    classId: 'batch-a',
-  },
-  {
-    id: 'slot_d1_5',
-    day: 'D1',
-    slotNumber: 5,
-    time: '16:30 - 17:30',
-    title: 'Sanad Verification & One-on-One Oral Testing',
-    batch: 'Advanced Sanad Candidates',
-    room: 'Library Sanctuary',
-    mentor: 'Academic Advisor Dr. Sreenivasan K.P.',
-    color: 'bg-purple-50 border-purple-200 text-purple-950',
-    tag: 'Oral Exam',
-    classId: 'batch-a',
-  },
-];
 
 const slotSchema = z.object({
   day: z.string().default('D1'),
@@ -87,8 +20,15 @@ const slotSchema = z.object({
 });
 
 // GET /api/timetable
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', async (_req: Request, res: Response) => {
   try {
+    if (!isMongoReady()) {
+      const slots = [...getRuntimeDb().timetableSlots].sort((a, b) =>
+        `${a.day}-${a.slotNumber}`.localeCompare(`${b.day}-${b.slotNumber}`)
+      );
+      return res.json({ success: true, data: slots });
+    }
+
     let slots = await TimetableSlot.find().sort({ day: 1, slotNumber: 1 }).lean();
 
     if (slots.length === 0) {
@@ -102,8 +42,8 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/timetable - Add new hour / period
-router.post('/', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async (req: AuthRequest, res: Response) => {
+// POST /api/timetable - Add new hour / period (MUDEER or USTHAD)
+router.post('/', authenticate, authorize('MUDEER', 'USTHAD'), async (req: AuthRequest, res: Response) => {
   try {
     const parse = slotSchema.safeParse(req.body);
     if (!parse.success) {
@@ -115,6 +55,18 @@ router.post('/', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async (req: A
 
     const data = parse.data;
     const slotId = `slot_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+
+    if (!isMongoReady()) {
+      const db = getRuntimeDb();
+      const newSlot = {
+        ...data,
+        id: slotId,
+        color: data.color || 'bg-emerald-50 border-emerald-200 text-emerald-950',
+      };
+      db.timetableSlots.push(newSlot);
+      saveRuntimeDb(db);
+      return res.status(201).json({ success: true, data: newSlot });
+    }
 
     const newSlot = await TimetableSlot.create({
       ...data,
@@ -135,9 +87,19 @@ router.post('/', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async (req: A
 });
 
 // PUT /api/timetable/:id - Edit hour / period
-router.put('/:id', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async (req: AuthRequest, res: Response) => {
+router.put('/:id', authenticate, authorize('MUDEER', 'USTHAD'), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
+
+    if (!isMongoReady()) {
+      const db = getRuntimeDb();
+      const idx = db.timetableSlots.findIndex((s) => s.id === id);
+      if (idx === -1) return res.status(404).json({ success: false, error: 'Slot not found' });
+      db.timetableSlots[idx] = { ...db.timetableSlots[idx], ...req.body };
+      saveRuntimeDb(db);
+      return res.json({ success: true, data: db.timetableSlots[idx] });
+    }
+
     const existing = await TimetableSlot.findOne({ id });
     if (!existing) {
       return res.status(404).json({ success: false, error: 'Slot not found' });
@@ -154,9 +116,19 @@ router.put('/:id', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async (req:
 });
 
 // DELETE /api/timetable/:id - Delete hour / period
-router.delete('/:id', authenticate, authorize('SUPER_ADMIN', 'USTHAD'), async (req: AuthRequest, res: Response) => {
+router.delete('/:id', authenticate, authorize('MUDEER', 'USTHAD'), async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
+
+    if (!isMongoReady()) {
+      const db = getRuntimeDb();
+      const existing = db.timetableSlots.find((s) => s.id === id);
+      if (!existing) return res.status(404).json({ success: false, error: 'Slot not found' });
+      db.timetableSlots = db.timetableSlots.filter((s) => s.id !== id);
+      saveRuntimeDb(db);
+      return res.json({ success: true, message: 'Timetable hour deleted successfully' });
+    }
+
     const existing = await TimetableSlot.findOne({ id });
     if (!existing) {
       return res.status(404).json({ success: false, error: 'Slot not found' });

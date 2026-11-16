@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Student,
   AttendanceStatus,
@@ -6,6 +6,7 @@ import {
   ClassBatch,
   UserProfile,
 } from '../types';
+import { getUsthadEffectiveClassIds, sortBatchesWithPriority } from '../utils/batchUtils';
 import {
   Calendar,
   CheckCircle2,
@@ -43,28 +44,37 @@ export const AttendanceModule: React.FC<AttendanceModuleProps> = ({
   const isReadOnly = currentUser.role === 'PARENT' || currentUser.role === 'STUDENT';
   const isUsthad = currentUser.role === 'USTHAD';
 
-  // Allowed classes based on role
+  // Allowed classes based on role (sorted Batch A first, Batch B second)
   const allowedClasses = React.useMemo(() => {
+    const ordered = sortBatchesWithPriority(classes);
     if (isUsthad) {
-      return classes.filter((c) => currentUser.assignedClassIds?.includes(c.id));
+      const effectiveIds = getUsthadEffectiveClassIds(currentUser, classes);
+      return ordered.filter((c) => effectiveIds.includes(c.id));
     }
     if (currentUser.role === 'STUDENT') {
       const selfStudent = students.find((s) => s.id === currentUser.studentId);
-      return selfStudent ? classes.filter((c) => c.id === selfStudent.classId) : classes;
+      return selfStudent ? ordered.filter((c) => c.id === selfStudent.classId) : ordered;
     }
     if (currentUser.role === 'PARENT') {
       const linked = students.filter((s) => currentUser.linkedStudentIds?.includes(s.id));
       const childClassIds = linked.map((s) => s.classId);
-      const matched = classes.filter((c) => childClassIds.includes(c.id));
-      return matched.length > 0 ? matched : classes;
+      const matched = ordered.filter((c) => childClassIds.includes(c.id));
+      return matched.length > 0 ? matched : ordered;
     }
-    return classes;
+    return ordered;
   }, [currentUser, classes, students, isUsthad]);
 
   const [selectedClassId, setSelectedClassId] = useState<string>(() => {
     if (isUsthad && allowedClasses.length > 0) return allowedClasses[0].id;
-    return initialSession.classId || classes[0]?.id || 'batch-a';
+    if (allowedClasses.some((c) => c.id === initialSession.classId)) return initialSession.classId;
+    return allowedClasses[0]?.id || classes[0]?.id || '';
   });
+
+  useEffect(() => {
+    if (allowedClasses.length > 0 && !allowedClasses.some((c) => c.id === selectedClassId)) {
+      setSelectedClassId(allowedClasses[0].id);
+    }
+  }, [allowedClasses, selectedClassId]);
   const [selectedDate, setSelectedDate] = useState<string>(initialSession.date || '2026-11-07');
   const [selectedHour, setSelectedHour] = useState<number>(initialSession.sessionHour || 1);
   const [sessionTopic, setSessionTopic] = useState<string>(initialSession.topic || 'Surah Al-Anbiya & Juz 17 Murajath');

@@ -113,7 +113,7 @@ export const HifzModule: React.FC<HifzModuleProps> = ({
           </p>
         </div>
 
-        {(currentUser.role === 'SUPER_ADMIN' || currentUser.role === 'USTHAD') && (
+        {(currentUser.role === 'MUDEER' || currentUser.role === 'USTHAD') && (
           <button
             onClick={onOpenAddModal}
             className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 self-start md:self-auto cursor-pointer"
@@ -190,6 +190,7 @@ export const HifzModule: React.FC<HifzModuleProps> = ({
 
       {/* Main View Area */}
       {activeTab === 'HEATMAP' ? (
+        heatmapStudent ? (
         /* 30-Juz Visual Completion Grid / Heatmap */
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
@@ -270,6 +271,11 @@ export const HifzModule: React.FC<HifzModuleProps> = ({
             </div>
           </div>
         </div>
+        ) : (
+          <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center text-xs text-slate-500">
+            No students enrolled in this campus yet to display the 30-Juz retention grid.
+          </div>
+        )
       ) : (
         /* Records List */
         <div className="space-y-4">

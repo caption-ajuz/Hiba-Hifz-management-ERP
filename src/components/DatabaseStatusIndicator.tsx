@@ -58,8 +58,8 @@ export const DatabaseStatusIndicator: React.FC<DatabaseStatusIndicatorProps> = (
   }, [isOpen]);
 
   const handleOpenDiagnostics = async () => {
-    // Only Super Admin can view diagnostic popover
-    if (userRole !== 'SUPER_ADMIN') return;
+    // Only HYBA Super Admin can view diagnostic popover
+    if (userRole !== 'HYBA_SUPER_ADMIN') return;
 
     setIsOpen(true);
     setIsLoading(true);
@@ -102,7 +102,7 @@ export const DatabaseStatusIndicator: React.FC<DatabaseStatusIndicatorProps> = (
   };
 
   const getStatusTooltip = () => {
-    if (userRole !== 'SUPER_ADMIN') {
+    if (userRole !== 'HYBA_SUPER_ADMIN') {
       return status === 'green' ? 'Systems Connected' : 'Connecting';
     }
     return `Infrastructure Status (${status === 'green' ? 'Operational' : status === 'amber' ? 'Degraded' : 'Offline'}) - Click for Diagnostics`;
@@ -114,10 +114,10 @@ export const DatabaseStatusIndicator: React.FC<DatabaseStatusIndicatorProps> = (
       <button
         type="button"
         onClick={handleOpenDiagnostics}
-        disabled={userRole !== 'SUPER_ADMIN'}
+        disabled={userRole !== 'HYBA_SUPER_ADMIN'}
         title={getStatusTooltip()}
         className={`relative flex items-center justify-center p-1 rounded-full transition-transform focus:outline-hidden ${
-          userRole === 'SUPER_ADMIN'
+          userRole === 'HYBA_SUPER_ADMIN'
             ? 'cursor-pointer hover:scale-110'
             : 'cursor-default pointer-events-none'
         }`}
@@ -126,8 +126,8 @@ export const DatabaseStatusIndicator: React.FC<DatabaseStatusIndicatorProps> = (
         <span className={`w-2.5 h-2.5 rounded-full ${getDotColorClass()} transition-colors duration-300`}></span>
       </button>
 
-      {/* Super Admin Diagnostics Modal */}
-      {isOpen && userRole === 'SUPER_ADMIN' && (
+      {/* HYBA Super Admin Diagnostics Modal */}
+      {isOpen && userRole === 'HYBA_SUPER_ADMIN' && (
         <div
           role="dialog"
           aria-modal="true"

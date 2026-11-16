@@ -18,9 +18,7 @@ const DEFAULT_DAYS = [
 ];
 
 export const TimetableModal: React.FC<TimetableModalProps> = ({ isOpen, onClose, currentUser }) => {
-  if (!isOpen) return null;
-
-  const canEdit = currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'USTHAD';
+  const canEdit = currentUser?.role === 'MUDEER' || currentUser?.role === 'USTHAD';
 
   const [activeDay, setActiveDay] = useState<string>('D1');
   const [slots, setSlots] = useState<TimetableSlot[]>([]);
@@ -44,8 +42,12 @@ export const TimetableModal: React.FC<TimetableModalProps> = ({ isOpen, onClose,
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    loadSlots();
-  }, []);
+    if (isOpen) {
+      loadSlots();
+    }
+  }, [isOpen]);
+
+  if (!isOpen) return null;
 
   const loadSlots = async () => {
     setIsLoading(true);

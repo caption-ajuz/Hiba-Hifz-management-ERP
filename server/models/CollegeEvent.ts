@@ -52,7 +52,7 @@ const CollegeEventSchema = new Schema<ICollegeEvent>(
       index: true,
     },
     createdBy: { type: String, default: 'Mudir Office' },
-    creatorRole: { type: String, default: 'SUPER_ADMIN' },
+    creatorRole: { type: String, default: 'MUDEER' },
     isImportant: { type: Boolean, default: false },
   },
   { timestamps: true }

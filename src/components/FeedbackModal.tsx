@@ -27,14 +27,14 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
   evaluations,
   onCompleteEvaluation,
 }) => {
-  if (!isOpen) return null;
-
   const [activeView, setActiveView] = useState<'LIST' | 'QUESTIONNAIRE'>('LIST');
   const [selectedEvalId, setSelectedEvalId] = useState<string>(evaluations[0]?.id || 'eval_01');
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState<number>(0);
   const [selectedOption, setSelectedOption] = useState<number>(5);
   const [feedbackNotes, setFeedbackNotes] = useState<string>('');
   const [surveyFilter, setSurveyFilter] = useState<'ALL' | 'PENDING' | 'COMPLETED'>('ALL');
+
+  if (!isOpen) return null;
 
   const activeEval = evaluations.find((e) => e.id === selectedEvalId) || evaluations[0];
   const assignedTeacher = MOCK_TEACHERS.find((t) => t.id === activeEval?.teacherId) || MOCK_TEACHERS[0];
@@ -73,7 +73,7 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
   const pendingCount = evaluations.filter((e) => e.status === 'Pending').length;
   const completedCount = evaluations.filter((e) => e.status === 'Completed').length;
   const totalCount = evaluations.length;
-  const participationRate = Math.round((completedCount / totalCount) * 100);
+  const participationRate = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
 
   const handleNextOrSubmit = () => {
     if (currentQuestionIndex < surveyQuestions.length - 1) {

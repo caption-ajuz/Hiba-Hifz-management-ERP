@@ -28,9 +28,9 @@ interface EventsModuleProps {
 }
 
 export const EventsModule: React.FC<EventsModuleProps> = ({ currentUser }) => {
-  const isSuperAdmin = currentUser.role === 'SUPER_ADMIN';
+  const isMudeer = currentUser.role === 'MUDEER';
   const isUsthad = currentUser.role === 'USTHAD';
-  const canManageEvents = isSuperAdmin || isUsthad;
+  const canManageEvents = isMudeer || isUsthad;
 
   const [events, setEvents] = useState<CollegeEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -131,6 +131,7 @@ export const EventsModule: React.FC<EventsModuleProps> = ({ currentUser }) => {
         targetAudience,
         status,
         isImportant,
+        campusId: currentUser.campusId || 'campus-main',
       };
 
       if (editingEvent) {

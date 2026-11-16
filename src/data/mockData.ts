@@ -26,9 +26,22 @@ export const INSTITUTION_INFO = {
 };
 
 export const MOCK_USERS: Record<string, UserProfile> = {
+  hybaSuperAdmin: {
+    id: "usr_hyba_super_admin",
+    role: "HYBA_SUPER_ADMIN",
+    fullName: "HYBA Super Admin",
+    arabicName: "المشرف العام لمنصة الهداية",
+    username: "Admin.Hyba_Campus.portal",
+    email: "superadmin@hyba.markazulhidaya.edu.in",
+    password: "HYBA. Markazul_Hidaya.Kombam",
+    phone: "+91 4924 222123",
+    avatar: "/assets/aistudio/__Hidaya_Updates_01__20261021_215417_1e0cd263.jpg",
+    title: "HYBA Platform Super Admin (Main Admin)",
+    referenceId: "HYBA-ROOT",
+  },
   admin: {
     id: "usr_admin_01",
-    role: "SUPER_ADMIN",
+    role: "MUDEER",
     fullName: "Sheikh Dr. Abdul Wahab Al-Qasimi",
     arabicName: "الشيخ د. عبد الوهاب القاسمي",
     username: "mudir",
@@ -36,8 +49,23 @@ export const MOCK_USERS: Record<string, UserProfile> = {
     password: "password123",
     phone: "+91 94471 20001",
     avatar: "/assets/images/avatar_mudir_male_1794118044233.jpg",
-    title: "Mudir / Head of Tahfeez Institution",
-    referenceId: "DIR-001",
+    title: "Campus Mudeer · Markazul Hidaya Kombam",
+    referenceId: "MUD-001",
+    campusId: "campus-main",
+  },
+  mudeerCity: {
+    id: "usr_mudeer_city",
+    role: "MUDEER",
+    fullName: "Usthad Hafiz Luqman Al-Bukhari",
+    arabicName: "الأستاذ لقمان البخاري",
+    username: "mudir.city",
+    email: "city.mudir@markazulhidaya.edu.in",
+    password: "password123",
+    phone: "+91 94475 77219",
+    avatar: "/assets/images/avatar_usthad_male_1794118062835.jpg",
+    title: "Campus Mudeer · HYBA City Tahfeez Center",
+    referenceId: "MUD-002",
+    campusId: "campus-city",
   },
   teacher: {
     id: "usr_teacher_01",
@@ -51,6 +79,7 @@ export const MOCK_USERS: Record<string, UserProfile> = {
     avatar: "/assets/images/avatar_usthad_male_1794118062835.jpg",
     title: "Senior Tahfeez Usthad & Tajweed Specialist",
     referenceId: "FAC-012",
+    campusId: "campus-main",
     assignedClassIds: ["batch-a", "batch-b"],
   },
   student: {
@@ -65,6 +94,7 @@ export const MOCK_USERS: Record<string, UserProfile> = {
     avatar: "/assets/images/avatar_student_male_1794118079992.jpg",
     title: "Student · Batch A",
     referenceId: "MH2024-24812",
+    campusId: "campus-main",
     studentId: "std_05",
   },
   parent: {

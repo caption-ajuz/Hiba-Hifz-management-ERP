@@ -114,7 +114,8 @@ export function emitAttendanceUpdated(data: {
   if (!ioInstance) return;
   // Broadcast to all active users & specific class room
   ioInstance.to('institution:main').emit('attendance:updated', data);
-  ioInstance.to('role:SUPER_ADMIN').emit('dashboard:updated', { type: 'attendance', data });
+  ioInstance.to('role:HYBA_SUPER_ADMIN').emit('dashboard:updated', { type: 'attendance', data });
+  ioInstance.to('role:MUDEER').emit('dashboard:updated', { type: 'attendance', data });
   ioInstance.to('role:USTHAD').emit('dashboard:updated', { type: 'attendance', data });
 }
 
@@ -124,7 +125,8 @@ export function emitHifzRecordCreated(record: any) {
   if (record.studentId) {
     ioInstance.to(`student:${record.studentId}`).emit('hifz:record:created', record);
   }
-  ioInstance.to('role:SUPER_ADMIN').emit('dashboard:updated', { type: 'hifz', record });
+  ioInstance.to('role:HYBA_SUPER_ADMIN').emit('dashboard:updated', { type: 'hifz', record });
+  ioInstance.to('role:MUDEER').emit('dashboard:updated', { type: 'hifz', record });
 }
 
 export function emitHifzRecordUpdated(record: any) {

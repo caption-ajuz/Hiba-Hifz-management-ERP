@@ -57,7 +57,9 @@ export const TeacherManagement: React.FC<TeacherManagementProps> = ({
   const [editSpecialization, setEditSpecialization] = useState('');
   const [editAccountStatus, setEditAccountStatus] = useState<'Active' | 'On Leave'>('Active');
   const [editClassIds, setEditClassIds] = useState<string[]>([]);
-  const [editCampusId, setEditCampusId] = useState('campus-main');
+  const isMudeer = currentUser.role === 'MUDEER';
+  const mudeerCampusId = currentUser.campusId || 'campus-main';
+  const [editCampusId, setEditCampusId] = useState(mudeerCampusId);
 
   // Delete Usthad State
   const [teacherToDelete, setTeacherToDelete] = useState<Teacher | null>(null);
@@ -66,12 +68,12 @@ export const TeacherManagement: React.FC<TeacherManagementProps> = ({
   // New Usthad Form State
   const [fullName, setFullName] = useState('');
   const [arabicTitle, setArabicTitle] = useState('');
-  const [teacherId, setTeacherId] = useState(`FAC-0${teachers.length + 20}`);
+  const [teacherId, setTeacherId] = useState(`FAC-${String(teachers.length + 21).padStart(3, '0')}`);
   const [phone, setPhone] = useState('+91 ');
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('usthad123');
-  const [assignedCampusId, setAssignedCampusId] = useState('campus-main');
+  const [assignedCampusId, setAssignedCampusId] = useState(mudeerCampusId);
   const [selectedClassIds, setSelectedClassIds] = useState<string[]>([]);
   const [qualification, setQualification] = useState('Hafiz & Qari (Shatibiyyah & Durrah Sanad)');
   const [experienceYears, setExperienceYears] = useState(5);
@@ -91,7 +93,7 @@ export const TeacherManagement: React.FC<TeacherManagementProps> = ({
     setEditSpecialization(teacher.specialization);
     setEditAccountStatus(teacher.accountStatus);
     setEditClassIds(teacher.assignedClassIds || []);
-    setEditCampusId(teacher.assignedCampusId || 'campus-main');
+    setEditCampusId(isMudeer ? mudeerCampusId : teacher.assignedCampusId || mudeerCampusId);
     setFormError(null);
     setShowEditModal(true);
   };
@@ -172,7 +174,7 @@ export const TeacherManagement: React.FC<TeacherManagementProps> = ({
         email: email || `${username}@markazulhidaya.edu.in`,
         username: username.toLowerCase().trim(),
         password,
-        assignedCampusId,
+        assignedCampusId: isMudeer ? mudeerCampusId : assignedCampusId,
         assignedClassIds: selectedClassIds,
         qualification,
         experienceYears: Number(experienceYears),
@@ -238,9 +240,14 @@ export const TeacherManagement: React.FC<TeacherManagementProps> = ({
           </p>
         </div>
 
-        {currentUser.role === 'SUPER_ADMIN' && (
+        {isMudeer && (
           <button
-            onClick={() => setShowAddModal(true)}
+            onClick={() => {
+              setAssignedCampusId(mudeerCampusId);
+              setTeacherId(`FAC-${String(teachers.length + 21).padStart(3, '0')}`);
+              setFormError(null);
+              setShowAddModal(true);
+            }}
             className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 self-start md:self-auto cursor-pointer"
           >
             <Plus className="w-4 h-4" />
@@ -362,7 +369,7 @@ export const TeacherManagement: React.FC<TeacherManagementProps> = ({
                   {teacher.specialization.split(',')[0]}
                 </span>
 
-                {currentUser.role === 'SUPER_ADMIN' && (
+                {isMudeer && (
                   <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       onClick={() => {
@@ -515,18 +522,27 @@ export const TeacherManagement: React.FC<TeacherManagementProps> = ({
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Campus Assignment
                   </label>
-                  <select
-                    value={assignedCampusId}
-                    onChange={(e) => setAssignedCampusId(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden"
-                  >
-                    <option value="campus-main">Main Campus</option>
-                    {campuses.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
+                  {isMudeer ? (
+                    <input
+                      disabled
+                      type="text"
+                      value={campuses.find((c) => c.id === mudeerCampusId)?.name || mudeerCampusId}
+                      className="w-full px-3 py-2 text-xs bg-slate-100 border border-slate-200 rounded-lg text-slate-600 font-semibold"
+                    />
+                  ) : (
+                    <select
+                      value={assignedCampusId}
+                      onChange={(e) => setAssignedCampusId(e.target.value)}
+                      className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden"
+                    >
+                      <option value="campus-main">Main Campus</option>
+                      {campuses.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -792,17 +808,26 @@ export const TeacherManagement: React.FC<TeacherManagementProps> = ({
                 <label className="block font-semibold text-slate-700 mb-1">
                   Assigned Campus
                 </label>
-                <select
-                  value={editCampusId}
-                  onChange={(e) => setEditCampusId(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-medium"
-                >
-                  {campuses.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} ({c.code})
-                    </option>
-                  ))}
-                </select>
+                {isMudeer ? (
+                  <input
+                    disabled
+                    type="text"
+                    value={campuses.find((c) => c.id === mudeerCampusId)?.name || mudeerCampusId}
+                    className="w-full px-3 py-2 bg-slate-100 border border-slate-200 rounded-lg text-slate-600 font-semibold"
+                  />
+                ) : (
+                  <select
+                    value={editCampusId}
+                    onChange={(e) => setEditCampusId(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-medium"
+                  >
+                    {campuses.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.code})
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               <div>
