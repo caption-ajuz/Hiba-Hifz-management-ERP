@@ -1,6 +1,8 @@
 import { Router, Response } from 'express';
 import { AttendanceSessionModel, AttendanceItem } from '../models/Attendance';
 import { Student } from '../models/Student';
+import { User } from '../models/User';
+import { Teacher } from '../models/Teacher';
 import { emitAttendanceUpdated } from '../socket';
 import { authenticate, AuthRequest, authorize, logAuditEvent } from '../middleware/auth';
 import { isMongoReady, getRuntimeDb, saveRuntimeDb } from '../config/runtimeStore';
@@ -17,6 +19,7 @@ const saveSessionSchema = z.object({
   sessionName: z.string().min(1),
   usthadId: z.string().min(1),
   topic: z.string().optional(),
+  description: z.string().optional(),
   records: z.record(z.string(), z.enum(['PRESENT', 'ABSENT', 'LATE', 'NOT_MARKED'])),
   academicYear: z.string().default('2026 - 2027'),
 });
@@ -43,7 +46,7 @@ router.get('/session', authenticate, async (req: AuthRequest, res: Response) => 
       }
     }
 
-    const hour = parseInt(sessionHour as string) || 1;
+    const hour = parseInt(sessionHour as string, 10) || 1;
 
     if (!isMongoReady()) {
       const db = getRuntimeDb();
@@ -77,7 +80,8 @@ router.post('/session', authenticate, authorize('MUDEER', 'USTHAD'), async (req:
       });
     }
 
-    const { classId, date, sessionHour, sessionName, usthadId, topic, records, academicYear } = parse.data;
+    const { classId, date, sessionHour, sessionName, usthadId, topic, description, records, academicYear } =
+      parse.data;
 
     if (user.role === 'USTHAD') {
       const effectiveClassIds = await resolveEffectiveAssignedClassIds(user);
@@ -90,7 +94,8 @@ router.post('/session', authenticate, authorize('MUDEER', 'USTHAD'), async (req:
       }
     }
 
-    const sessionId = req.body.id || `att_${classId}_${date}_h${sessionHour}`;
+    const fallbackSessionId = req.body.id || `att_${classId}_${date}_h${sessionHour}`;
+    const effectiveUsthadId = user.role === 'USTHAD' ? user.id : usthadId;
 
     if (!isMongoReady()) {
       const db = getRuntimeDb();
@@ -101,22 +106,28 @@ router.post('/session', authenticate, authorize('MUDEER', 'USTHAD'), async (req:
         }
       }
 
+      const existingIdx = db.attendanceSessions.findIndex(
+        (s) => s.classId === classId && s.date === date && s.sessionHour === sessionHour
+      );
+      const resolvedSessionId =
+        existingIdx >= 0 && db.attendanceSessions[existingIdx]?.id
+          ? db.attendanceSessions[existingIdx].id
+          : fallbackSessionId;
+
       const sessionObj = {
-        id: sessionId,
+        id: resolvedSessionId,
         classId,
         date,
         sessionHour,
         sessionName,
-        usthadId: user.role === 'USTHAD' ? user.id : usthadId,
-        topic,
+        usthadId: effectiveUsthadId,
+        topic: topic || '',
+        description: description || '',
         records,
         academicYear,
         submittedAt: new Date().toISOString(),
       };
 
-      const existingIdx = db.attendanceSessions.findIndex(
-        (s) => s.classId === classId && s.date === date && s.sessionHour === sessionHour
-      );
       if (existingIdx >= 0) db.attendanceSessions[existingIdx] = sessionObj;
       else db.attendanceSessions.push(sessionObj);
 
@@ -137,11 +148,13 @@ router.post('/session', authenticate, authorize('MUDEER', 'USTHAD'), async (req:
         if (itemIdx >= 0) db.attendanceItems[itemIdx] = itemObj;
         else db.attendanceItems.push(itemObj);
 
-        const stuItems = db.attendanceItems.filter((i) => i.studentId === studentId);
-        if (stuItems.length > 0) {
-          const present = stuItems.filter((i) => i.status === 'PRESENT' || i.status === 'LATE').length;
+        const markedItems = db.attendanceItems.filter(
+          (i) => i.studentId === studentId && i.status !== 'NOT_MARKED'
+        );
+        if (markedItems.length > 0) {
+          const present = markedItems.filter((i) => i.status === 'PRESENT' || i.status === 'LATE').length;
           const stu = db.students.find((s) => s.id === studentId);
-          if (stu) stu.attendanceRate = Math.round((present / stuItems.length) * 100);
+          if (stu) stu.attendanceRate = Math.round((present / markedItems.length) * 100);
         }
       }
 
@@ -150,6 +163,9 @@ router.post('/session', authenticate, authorize('MUDEER', 'USTHAD'), async (req:
         classId,
         date,
         sessionHour,
+        sessionName,
+        topic: topic || '',
+        description: description || '',
         records,
         updatedBy: user.fullName || 'Usthad',
       });
@@ -164,16 +180,21 @@ router.post('/session', authenticate, authorize('MUDEER', 'USTHAD'), async (req:
     const sessionDoc = await AttendanceSessionModel.findOneAndUpdate(
       { classId, date, sessionHour },
       {
-        id: sessionId,
-        classId,
-        date,
-        sessionHour,
-        sessionName,
-        usthadId: user.role === 'USTHAD' ? user.id : usthadId,
-        topic,
-        records,
-        academicYear,
-        submittedAt: new Date(),
+        $set: {
+          classId,
+          date,
+          sessionHour,
+          sessionName,
+          usthadId: effectiveUsthadId,
+          topic: topic || '',
+          description: description || '',
+          records,
+          academicYear,
+          submittedAt: new Date(),
+        },
+        $setOnInsert: {
+          id: fallbackSessionId,
+        },
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
@@ -204,7 +225,10 @@ router.post('/session', authenticate, authorize('MUDEER', 'USTHAD'), async (req:
       try {
         const studentIds = Object.keys(records);
         for (const sid of studentIds) {
-          const totalRecords = await AttendanceItem.countDocuments({ studentId: sid });
+          const totalRecords = await AttendanceItem.countDocuments({
+            studentId: sid,
+            status: { $ne: 'NOT_MARKED' },
+          });
           const presentRecords = await AttendanceItem.countDocuments({
             studentId: sid,
             status: { $in: ['PRESENT', 'LATE'] },
@@ -223,11 +247,14 @@ router.post('/session', authenticate, authorize('MUDEER', 'USTHAD'), async (req:
       classId,
       date,
       sessionHour,
+      sessionName,
+      topic: topic || '',
+      description: description || '',
       records,
       updatedBy: user.fullName || 'Usthad',
     });
 
-    await logAuditEvent('ATTENDANCE_SUBMIT', user, 'AttendanceSession', sessionId, {
+    await logAuditEvent('ATTENDANCE_SUBMIT', user, 'AttendanceSession', sessionDoc?.id || fallbackSessionId, {
       classId,
       date,
       sessionHour,
@@ -288,19 +315,71 @@ router.get('/student/:id', authenticate, async (req: AuthRequest, res: Response)
     }
 
     if (!isMongoReady()) {
-      const records = getRuntimeDb().attendanceItems
+      const db = getRuntimeDb();
+      const rawRecords = db.attendanceItems
         .filter((i) => i.studentId === id)
         .sort((a, b) => `${b.date}-${b.sessionHour}`.localeCompare(`${a.date}-${a.sessionHour}`))
-        .slice(0, 90);
-      return res.json({ success: true, data: records });
+        .slice(0, 500);
+
+      const enriched = rawRecords.map((item) => {
+        const session = db.attendanceSessions.find(
+          (s) => s.classId === item.classId && s.date === item.date && s.sessionHour === item.sessionHour
+        );
+        const mentorId = session?.usthadId || item.markedByUsthadId;
+        const mentor =
+          db.users.find((u) => u.id === mentorId || u.referenceId === mentorId) ||
+          db.teachers.find((t) => t.id === mentorId || t.teacherId === mentorId);
+        return {
+          ...item,
+          sessionName: session?.sessionName || `Hour ${item.sessionHour}`,
+          topic: session?.topic || '',
+          description: session?.description || '',
+          markedByName: mentor?.fullName || '',
+        };
+      });
+
+      return res.json({ success: true, data: enriched });
     }
 
-    const records = await AttendanceItem.find({ studentId: id })
+    const rawRecords = await AttendanceItem.find({ studentId: id })
       .sort({ date: -1, sessionHour: -1 })
-      .limit(90)
+      .limit(500)
       .lean();
 
-    return res.json({ success: true, data: records });
+    const uniqueKeys = Array.from(
+      new Set(rawRecords.map((r) => `${r.classId}__${r.date}__${r.sessionHour}`))
+    );
+    const sessionConditions = uniqueKeys.map((k) => {
+      const [classId, date, hr] = k.split('__');
+      return { classId, date, sessionHour: Number(hr) };
+    });
+
+    const [sessions, users, teachers] = await Promise.all([
+      sessionConditions.length > 0
+        ? AttendanceSessionModel.find({ $or: sessionConditions }).lean()
+        : Promise.resolve([]),
+      User.find({ role: { $in: ['USTHAD', 'MUDEER'] } }).select('id referenceId fullName').lean(),
+      Teacher.find().select('id teacherId fullName').lean(),
+    ]);
+
+    const enriched = rawRecords.map((item) => {
+      const session = sessions.find(
+        (s) => s.classId === item.classId && s.date === item.date && s.sessionHour === item.sessionHour
+      );
+      const mentorId = session?.usthadId || item.markedByUsthadId;
+      const mentor =
+        users.find((u) => u.id === mentorId || u.referenceId === mentorId) ||
+        teachers.find((t) => t.id === mentorId || t.teacherId === mentorId);
+      return {
+        ...item,
+        sessionName: session?.sessionName || `Hour ${item.sessionHour}`,
+        topic: session?.topic || '',
+        description: session?.description || '',
+        markedByName: mentor?.fullName || '',
+      };
+    });
+
+    return res.json({ success: true, data: enriched });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: 'Failed to retrieve student attendance history' });
   }

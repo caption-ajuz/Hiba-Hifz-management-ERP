@@ -41,6 +41,14 @@ export function subscribeToRealtimeEvents(handlers: {
   onTeacherUpdated?: (teacher: any) => void;
   onAnnouncementCreated?: (announcement: any) => void;
   onDashboardUpdated?: (data: any) => void;
+  onEventCreated?: (event: any) => void;
+  onEventUpdated?: (event: any) => void;
+  onEventDeleted?: (data: any) => void;
+  onTimetableUpdated?: (data: any) => void;
+  onFeedbackConfigUpdated?: (config: any) => void;
+  onFeedbackSubmitted?: (submission: any) => void;
+  onFeedbackReportUpdated?: (report: any) => void;
+  onStudentProfilePermissionUpdated?: (data: { campusId: string; allowStudentProfileEdit: boolean; updatedBy?: string }) => void;
 }) {
   const s = getSocket();
 
@@ -65,6 +73,30 @@ export function subscribeToRealtimeEvents(handlers: {
   if (handlers.onDashboardUpdated) {
     s.on('dashboard:updated', handlers.onDashboardUpdated);
   }
+  if (handlers.onEventCreated) {
+    s.on('event:created', handlers.onEventCreated);
+  }
+  if (handlers.onEventUpdated) {
+    s.on('event:updated', handlers.onEventUpdated);
+  }
+  if (handlers.onEventDeleted) {
+    s.on('event:deleted', handlers.onEventDeleted);
+  }
+  if (handlers.onTimetableUpdated) {
+    s.on('timetable:updated', handlers.onTimetableUpdated);
+  }
+  if (handlers.onFeedbackConfigUpdated) {
+    s.on('feedback:config:updated', handlers.onFeedbackConfigUpdated);
+  }
+  if (handlers.onFeedbackSubmitted) {
+    s.on('feedback:submitted', handlers.onFeedbackSubmitted);
+  }
+  if (handlers.onFeedbackReportUpdated) {
+    s.on('feedback:report:updated', handlers.onFeedbackReportUpdated);
+  }
+  if (handlers.onStudentProfilePermissionUpdated) {
+    s.on('student:profile-edit-permission:updated', handlers.onStudentProfilePermissionUpdated);
+  }
 
   // Return cleanup function
   return () => {
@@ -75,5 +107,15 @@ export function subscribeToRealtimeEvents(handlers: {
     if (handlers.onTeacherUpdated) s.off('teacher:updated', handlers.onTeacherUpdated);
     if (handlers.onAnnouncementCreated) s.off('announcement:created', handlers.onAnnouncementCreated);
     if (handlers.onDashboardUpdated) s.off('dashboard:updated', handlers.onDashboardUpdated);
+    if (handlers.onEventCreated) s.off('event:created', handlers.onEventCreated);
+    if (handlers.onEventUpdated) s.off('event:updated', handlers.onEventUpdated);
+    if (handlers.onEventDeleted) s.off('event:deleted', handlers.onEventDeleted);
+    if (handlers.onTimetableUpdated) s.off('timetable:updated', handlers.onTimetableUpdated);
+    if (handlers.onFeedbackConfigUpdated) s.off('feedback:config:updated', handlers.onFeedbackConfigUpdated);
+    if (handlers.onFeedbackSubmitted) s.off('feedback:submitted', handlers.onFeedbackSubmitted);
+    if (handlers.onFeedbackReportUpdated) s.off('feedback:report:updated', handlers.onFeedbackReportUpdated);
+    if (handlers.onStudentProfilePermissionUpdated) {
+      s.off('student:profile-edit-permission:updated', handlers.onStudentProfilePermissionUpdated);
+    }
   };
 }

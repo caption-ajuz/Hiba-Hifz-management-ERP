@@ -61,6 +61,7 @@ export type MediaFolderType =
   | 'parents'
   | 'institution'
   | 'announcements'
+  | 'events'
   | 'documents';
 
 /**

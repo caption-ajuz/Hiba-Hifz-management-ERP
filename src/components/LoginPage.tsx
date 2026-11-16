@@ -287,7 +287,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
             <form onSubmit={handleLogin} className="space-y-3.5">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Username / Email / Admission ID
+                  Username / Admission ID / Student Name (Parent)
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
@@ -298,7 +298,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                     required
                     value={usernameInput}
                     onChange={(e) => setUsernameInput(e.target.value)}
-                    placeholder="e.g. mudir or Admin.Hyba_Campus.portal"
+                    placeholder="e.g. mudir, 26001, or Ayaan Rahman"
                     className="w-full pl-10 pr-3.5 py-3 text-xs sm:text-sm bg-slate-50/80 border border-slate-200 rounded-xl focus:outline-hidden focus:border-emerald-600 focus:bg-white focus:ring-2 focus:ring-emerald-600/15 font-medium transition-all"
                   />
                 </div>
@@ -317,7 +317,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                     required
                     value={passwordInput}
                     onChange={(e) => setPasswordInput(e.target.value)}
-                    placeholder="Enter password"
+                    placeholder="Password, DOB (DD-MM-YYYY), or Parent Mobile"
                     className="w-full pl-10 pr-10 py-3 text-xs sm:text-sm bg-slate-50/80 border border-slate-200 rounded-xl focus:outline-hidden focus:border-emerald-600 focus:bg-white focus:ring-2 focus:ring-emerald-600/15 font-medium transition-all"
                   />
                   <button
@@ -364,6 +364,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                   </>
                 )}
               </button>
+
+              <div className="p-2.5 bg-slate-50 border border-slate-200/80 rounded-xl text-[11px] text-slate-600 space-y-0.5">
+                <div>
+                  <strong className="text-slate-800">Student Default Login:</strong> Admission No. + Date of Birth (<span className="font-mono">DD-MM-YYYY</span>)
+                </div>
+                <div>
+                  <strong className="text-slate-800">Parent Default Login:</strong> Student Name + Registered Mobile Number
+                </div>
+              </div>
             </form>
 
             {/* Role Portals Quick Access */}

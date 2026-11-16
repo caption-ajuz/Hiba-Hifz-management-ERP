@@ -12,6 +12,7 @@ export interface ITimetableSlot extends Document {
   color?: string;
   tag?: string;
   classId?: string;
+  campusId?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -29,6 +30,7 @@ const TimetableSlotSchema = new Schema<ITimetableSlot>(
     color: { type: String, default: 'bg-emerald-50 border-emerald-200 text-emerald-950' },
     tag: { type: String, default: 'Sabq Focus' },
     classId: { type: String, default: 'batch-a' },
+    campusId: { type: String, default: 'campus-main', index: true },
   },
   { timestamps: true }
 );

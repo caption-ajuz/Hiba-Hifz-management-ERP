@@ -22,6 +22,7 @@ import {
   MOCK_EVALUATIONS,
   INSTITUTION_INFO,
 } from '../../src/data/mockData';
+import { reconcileStudentAndParentAccounts } from '../utils/accessHelpers';
 
 export async function seedDatabaseIfEmpty() {
   try {
@@ -173,14 +174,6 @@ export async function seedDatabaseIfEmpty() {
           },
         }
       );
-      await Student.updateMany(
-        { $or: [{ admissionNumber: '24812' }, { id: 'std_05' }, { fullName: /Ajash/i }] },
-        {
-          $set: {
-            photo: '/assets/images/avatar_student_male_1794118079992.jpg',
-          },
-        }
-      );
     }
 
     // 6. Students
@@ -258,6 +251,9 @@ export async function seedDatabaseIfEmpty() {
         await TeacherEvaluationModel.create(e);
       }
     }
+
+    // 11. Ensure every existing student has a login account
+    await reconcileStudentAndParentAccounts();
 
     console.log('[Seed] Database initialization and verification check complete.');
   } catch (err: any) {

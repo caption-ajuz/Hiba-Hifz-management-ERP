@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { CollegeEvent } from '../models/CollegeEvent';
 import { authenticate, AuthRequest, authorize, logAuditEvent } from '../middleware/auth';
 import { DEFAULT_EVENTS, isMongoReady, getRuntimeDb, saveRuntimeDb } from '../config/runtimeStore';
+import { emitEventChanged } from '../socket';
 import { z } from 'zod';
 
 const router = Router();
@@ -19,8 +20,12 @@ const eventSchema = z.object({
   campusId: z.string().default('campus-main'),
   targetAudience: z.enum(['ALL', 'STUDENTS', 'PARENTS', 'TEACHERS']).default('ALL'),
   status: z.enum(['Scheduled', 'Ongoing', 'Completed', 'Postponed']).default('Scheduled'),
+  posterUrl: z.string().optional(),
+  posterPublicId: z.string().optional(),
   isImportant: z.boolean().default(false),
 });
+
+const updateEventSchema = eventSchema.partial();
 
 // GET /api/events - List events
 router.get('/', async (_req: Request, res: Response) => {
@@ -72,6 +77,7 @@ router.post('/', authenticate, authorize('MUDEER', 'USTHAD'), async (req: AuthRe
       };
       db.events.push(newEvent);
       saveRuntimeDb(db);
+      emitEventChanged('created', newEvent);
       return res.status(201).json({ success: true, data: newEvent });
     }
 
@@ -89,6 +95,7 @@ router.post('/', authenticate, authorize('MUDEER', 'USTHAD'), async (req: AuthRe
       status: newEvent.status,
     });
 
+    emitEventChanged('created', newEvent);
     return res.status(201).json({ success: true, data: newEvent });
   } catch (err: any) {
     console.error('[Events] Create error:', err);
@@ -101,13 +108,22 @@ router.put('/:id', authenticate, authorize('MUDEER', 'USTHAD'), async (req: Auth
   try {
     const { id } = req.params;
     const user = req.user!;
+    const parse = updateEventSchema.safeParse(req.body);
+    if (!parse.success) {
+      return res.status(400).json({
+        success: false,
+        error: parse.error.issues[0]?.message || 'Invalid event update data',
+      });
+    }
+    const updates = parse.data;
 
     if (!isMongoReady()) {
       const db = getRuntimeDb();
       const idx = db.events.findIndex((e) => e.id === id);
       if (idx === -1) return res.status(404).json({ success: false, error: 'College event not found' });
-      db.events[idx] = { ...db.events[idx], ...req.body };
+      db.events[idx] = { ...db.events[idx], ...updates };
       saveRuntimeDb(db);
+      emitEventChanged('updated', db.events[idx]);
       return res.json({ success: true, data: db.events[idx] });
     }
 
@@ -116,9 +132,10 @@ router.put('/:id', authenticate, authorize('MUDEER', 'USTHAD'), async (req: Auth
       return res.status(404).json({ success: false, error: 'College event not found' });
     }
 
-    const updated = await CollegeEvent.findOneAndUpdate({ id }, { $set: req.body }, { new: true });
+    const updated = await CollegeEvent.findOneAndUpdate({ id }, { $set: updates }, { new: true });
 
-    await logAuditEvent('EVENT_UPDATE', user, 'CollegeEvent', id, req.body);
+    await logAuditEvent('EVENT_UPDATE', user, 'CollegeEvent', id, updates);
+    emitEventChanged('updated', updated);
 
     return res.json({ success: true, data: updated });
   } catch (err: any) {
@@ -138,6 +155,7 @@ router.delete('/:id', authenticate, authorize('MUDEER', 'USTHAD'), async (req: A
       if (!existing) return res.status(404).json({ success: false, error: 'Event not found' });
       db.events = db.events.filter((e) => e.id !== id);
       saveRuntimeDb(db);
+      emitEventChanged('deleted', { id });
       return res.json({ success: true, message: 'College event deleted successfully' });
     }
 
@@ -148,6 +166,7 @@ router.delete('/:id', authenticate, authorize('MUDEER', 'USTHAD'), async (req: A
 
     await CollegeEvent.deleteOne({ id });
     await logAuditEvent('EVENT_DELETE', user, 'CollegeEvent', id, { title: existing.title });
+    emitEventChanged('deleted', { id });
 
     return res.json({ success: true, message: 'College event deleted successfully' });
   } catch (err: any) {

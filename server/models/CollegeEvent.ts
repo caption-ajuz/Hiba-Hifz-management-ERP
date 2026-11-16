@@ -14,6 +14,8 @@ export interface ICollegeEvent extends Document {
   campusId?: string;
   targetAudience: 'ALL' | 'STUDENTS' | 'PARENTS' | 'TEACHERS';
   status: 'Scheduled' | 'Ongoing' | 'Completed' | 'Postponed';
+  posterUrl?: string;
+  posterPublicId?: string;
   createdBy?: string;
   creatorRole?: string;
   isImportant?: boolean;
@@ -51,6 +53,8 @@ const CollegeEventSchema = new Schema<ICollegeEvent>(
       default: 'Scheduled',
       index: true,
     },
+    posterUrl: { type: String, default: '' },
+    posterPublicId: { type: String, default: '' },
     createdBy: { type: String, default: 'Mudir Office' },
     creatorRole: { type: String, default: 'MUDEER' },
     isImportant: { type: Boolean, default: false },

@@ -3,10 +3,19 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { z } from 'zod';
 import { User } from '../models/User';
+import { Student } from '../models/Student';
+import { ClassBatch } from '../models/ClassBatch';
 import { PasswordResetToken } from '../models/InstitutionModels';
 import { generateToken, authenticate, AuthRequest, logAuditEvent } from '../middleware/auth';
 import { isMongoReady, getRuntimeDb, saveRuntimeDb, sanitizeRuntimeUser } from '../config/runtimeStore';
-import { resolveEffectiveAssignedClassIds } from '../utils/accessHelpers';
+import {
+  resolveEffectiveAssignedClassIds,
+  getStudentDobPasswordVariants,
+  ensureStudentUserAccount,
+  ensureParentUserAccountForStudent,
+  normalizePersonName,
+  phonesMatch,
+} from '../utils/accessHelpers';
 
 const router = Router();
 
@@ -64,17 +73,114 @@ router.post('/login', async (req: Request, res: Response) => {
     }
 
     const { username, password } = parseResult.data;
-    const cleanUser = username.trim().toLowerCase();
+    const rawUser = username.trim();
+    const rawPass = password.trim();
+    const cleanUser = rawUser.toLowerCase();
+    const escapedRegex = rawUser.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
     if (isMongoReady()) {
-      const user = await User.findOne({
+      let user = await User.findOne({
         $or: [
           { username: cleanUser },
           { email: cleanUser },
           { referenceId: cleanUser },
-          { referenceId: username.trim() },
+          { referenceId: rawUser },
         ],
       });
+
+      // Dynamic student auto-provisioning if Student record exists without a User account
+      if (!user) {
+        const matchedStudent = await Student.findOne({
+          $or: [
+            { admissionNumber: new RegExp(`^${escapedRegex}$`, 'i') },
+            { id: rawUser },
+          ],
+        }).lean();
+
+        if (matchedStudent) {
+          const cls = await ClassBatch.findOne({ id: matchedStudent.classId }).select('name').lean();
+          const provisioned = await ensureStudentUserAccount(matchedStudent as any, cls?.name);
+          user = await User.findOne({ username: provisioned.username });
+        }
+      }
+
+      // Check Parent Default Login: Student Name + Registered Mobile Number
+      if (!user) {
+        const allStudents = await Student.find().lean();
+        const normInputName = normalizePersonName(rawUser);
+        const normInputPassName = normalizePersonName(rawPass);
+        const matchedParentStudent =
+          allStudents.find(
+            (s: any) =>
+              normalizePersonName(s.fullName) === normInputName &&
+              phonesMatch(s.parentPhone, rawPass)
+          ) ||
+          allStudents.find(
+            (s: any) =>
+              phonesMatch(s.parentPhone, rawUser) &&
+              normalizePersonName(s.fullName) === normInputPassName
+          );
+
+        if (matchedParentStudent) {
+          const ensuredParent = await ensureParentUserAccountForStudent(matchedParentStudent as any);
+          if (ensuredParent) {
+            const parentDoc = await User.findOne({ id: ensuredParent.userId });
+            if (parentDoc) {
+              const isSeededDefaultParent =
+                parentDoc.id === 'usr_parent_01' && (await parentDoc.comparePassword('password123'));
+              if (parentDoc.mustChangePassword === false && !isSeededDefaultParent) {
+                return res.status(401).json({
+                  success: false,
+                  error: 'Your parent password has been updated. Please sign in with your custom password.',
+                });
+              }
+
+              if (!parentDoc.isActive) {
+                return res.status(403).json({
+                  success: false,
+                  error: 'Account deactivated. Please contact campus administration.',
+                });
+              }
+
+              parentDoc.lastLoginAt = new Date();
+              await parentDoc.save();
+
+              const token = generateToken({
+                id: parentDoc.id,
+                role: parentDoc.role,
+                username: parentDoc.username,
+                fullName: parentDoc.fullName,
+                campusId: parentDoc.campusId,
+                studentId: parentDoc.studentId,
+                assignedClassIds: parentDoc.assignedClassIds || [],
+              });
+              await logAuditEvent('USER_LOGIN', parentDoc, 'User', parentDoc.id, { via: 'parent_default_mobile' }, req.ip);
+
+              return res.json({
+                success: true,
+                token,
+                user: {
+                  id: parentDoc.id,
+                  role: parentDoc.role,
+                  fullName: parentDoc.fullName,
+                  arabicName: parentDoc.arabicName,
+                  username: parentDoc.username,
+                  email: parentDoc.email,
+                  phone: parentDoc.phone,
+                  avatar: parentDoc.avatar,
+                  title: parentDoc.title,
+                  referenceId: parentDoc.referenceId,
+                  campusId: parentDoc.campusId,
+                  studentId: parentDoc.studentId,
+                  linkedStudentIds: parentDoc.linkedStudentIds,
+                  assignedClassIds: parentDoc.assignedClassIds || [],
+                  mustChangePassword: Boolean(parentDoc.mustChangePassword),
+                },
+              });
+            }
+          }
+        }
+      }
 
       if (!user) {
         return res.status(401).json({
@@ -90,7 +196,27 @@ router.post('/login', async (req: Request, res: Response) => {
         });
       }
 
-      const isMatch = await user.comparePassword(password);
+      let isMatch = await user.comparePassword(rawPass);
+
+      // For student accounts still on default password, accept any canonical DOB or <AdmNo>@<DOB> format
+      if (!isMatch && user.role === 'STUDENT' && user.mustChangePassword) {
+        const stu = await Student.findOne({
+          $or: [
+            ...(user.studentId ? [{ id: user.studentId }] : []),
+            { admissionNumber: user.referenceId || user.username },
+          ],
+        }).lean();
+        if (stu) {
+          const variants = getStudentDobPasswordVariants(stu.admissionNumber, stu.dateOfBirth);
+          isMatch = variants.includes(rawPass);
+        }
+      }
+
+      // For parent accounts still on default password, accept normalized registered mobile digits
+      if (!isMatch && user.role === 'PARENT' && user.mustChangePassword && phonesMatch(user.phone, rawPass)) {
+        isMatch = true;
+      }
+
       if (!isMatch) {
         return res.status(401).json({
           success: false,
@@ -138,12 +264,82 @@ router.post('/login', async (req: Request, res: Response) => {
 
     // Runtime store mode
     const db = getRuntimeDb();
-    const rtUser = db.users.find(
+    let rtUser = db.users.find(
       (u) =>
         u.username.toLowerCase() === cleanUser ||
         u.email.toLowerCase() === cleanUser ||
         (u.referenceId && u.referenceId.toLowerCase() === cleanUser)
     );
+
+    if (!rtUser) {
+      const matchedStudent = db.students.find(
+        (s) =>
+          (s.admissionNumber || '').trim().toLowerCase() === cleanUser ||
+          s.id === rawUser
+      );
+      if (matchedStudent) {
+        const cls = db.classes.find((c) => c.id === matchedStudent.classId);
+        const provisioned = await ensureStudentUserAccount(matchedStudent, cls?.name);
+        saveRuntimeDb(db);
+        rtUser = db.users.find((u) => u.username.toLowerCase() === provisioned.username.toLowerCase());
+      }
+    }
+
+    if (!rtUser) {
+      const normInputName = normalizePersonName(rawUser);
+      const normInputPassName = normalizePersonName(rawPass);
+      const matchedParentStudent =
+        db.students.find(
+          (s) =>
+            normalizePersonName(s.fullName) === normInputName &&
+            phonesMatch(s.parentPhone, rawPass)
+        ) ||
+        db.students.find(
+          (s) =>
+            phonesMatch(s.parentPhone, rawUser) &&
+            normalizePersonName(s.fullName) === normInputPassName
+        );
+
+      if (matchedParentStudent) {
+        const ensuredParent = await ensureParentUserAccountForStudent(matchedParentStudent);
+        if (ensuredParent) {
+          saveRuntimeDb(db);
+          const parentDoc = db.users.find((u) => u.id === ensuredParent.userId);
+          if (parentDoc) {
+            const isSeededDefaultParent =
+              parentDoc.id === 'usr_parent_01' && bcrypt.compareSync('password123', parentDoc.passwordHash);
+            if (parentDoc.mustChangePassword === false && !isSeededDefaultParent) {
+              return res.status(401).json({
+                success: false,
+                error: 'Your parent password has been updated. Please sign in with your custom password.',
+              });
+            }
+            if (!parentDoc.isActive) {
+              return res.status(403).json({
+                success: false,
+                error: 'Account deactivated. Please contact administration.',
+              });
+            }
+            parentDoc.lastLoginAt = new Date().toISOString();
+            saveRuntimeDb(db);
+            const token = generateToken({
+              id: parentDoc.id,
+              role: parentDoc.role,
+              username: parentDoc.username,
+              fullName: parentDoc.fullName,
+              campusId: parentDoc.campusId,
+              studentId: parentDoc.studentId,
+              assignedClassIds: parentDoc.assignedClassIds || [],
+            });
+            return res.json({
+              success: true,
+              token,
+              user: sanitizeRuntimeUser(parentDoc),
+            });
+          }
+        }
+      }
+    }
 
     if (!rtUser) {
       return res.status(401).json({
@@ -159,7 +355,23 @@ router.post('/login', async (req: Request, res: Response) => {
       });
     }
 
-    const isMatch = await bcrypt.compare(password, rtUser.passwordHash);
+    let isMatch = await bcrypt.compare(rawPass, rtUser.passwordHash);
+    if (!isMatch && rtUser.role === 'STUDENT' && rtUser.mustChangePassword) {
+      const stu = db.students.find(
+        (s) =>
+          (rtUser!.studentId && s.id === rtUser!.studentId) ||
+          (s.admissionNumber || '').toLowerCase() === (rtUser!.referenceId || rtUser!.username).toLowerCase()
+      );
+      if (stu) {
+        const variants = getStudentDobPasswordVariants(stu.admissionNumber, stu.dateOfBirth);
+        isMatch = variants.includes(rawPass);
+      }
+    }
+
+    if (!isMatch && rtUser.role === 'PARENT' && rtUser.mustChangePassword && phonesMatch(rtUser.phone, rawPass)) {
+      isMatch = true;
+    }
+
     if (!isMatch) {
       return res.status(401).json({
         success: false,
@@ -262,7 +474,21 @@ router.post('/change-password', authenticate, async (req: AuthRequest, res: Resp
       if (!userDoc) {
         return res.status(404).json({ success: false, error: 'User account not found.' });
       }
-      const isValid = await userDoc.comparePassword(currentPassword);
+      let isValid = await userDoc.comparePassword(currentPassword);
+      if (!isValid && userDoc.role === 'STUDENT' && userDoc.mustChangePassword) {
+        const stu = await Student.findOne({
+          $or: [
+            ...(userDoc.studentId ? [{ id: userDoc.studentId }] : []),
+            { admissionNumber: userDoc.referenceId || userDoc.username },
+          ],
+        }).lean();
+        if (stu) {
+          isValid = getStudentDobPasswordVariants(stu.admissionNumber, stu.dateOfBirth).includes(currentPassword.trim());
+        }
+      }
+      if (!isValid && userDoc.role === 'PARENT' && userDoc.mustChangePassword && phonesMatch(userDoc.phone, currentPassword)) {
+        isValid = true;
+      }
       if (!isValid) {
         return res.status(401).json({
           success: false,
@@ -285,7 +511,20 @@ router.post('/change-password', authenticate, async (req: AuthRequest, res: Resp
       return res.status(404).json({ success: false, error: 'User account not found.' });
     }
 
-    const isValid = await bcrypt.compare(currentPassword, rtUser.passwordHash);
+    let isValid = await bcrypt.compare(currentPassword, rtUser.passwordHash);
+    if (!isValid && rtUser.role === 'STUDENT' && rtUser.mustChangePassword) {
+      const stu = db.students.find(
+        (s) =>
+          (rtUser.studentId && s.id === rtUser.studentId) ||
+          (s.admissionNumber || '').toLowerCase() === (rtUser.referenceId || rtUser.username).toLowerCase()
+      );
+      if (stu) {
+        isValid = getStudentDobPasswordVariants(stu.admissionNumber, stu.dateOfBirth).includes(currentPassword.trim());
+      }
+    }
+    if (!isValid && rtUser.role === 'PARENT' && rtUser.mustChangePassword && phonesMatch(rtUser.phone, currentPassword)) {
+      isValid = true;
+    }
     if (!isValid) {
       return res.status(401).json({
         success: false,

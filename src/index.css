@@ -5,7 +5,7 @@
 @layer base {
   :root {
     --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-    --font-arabic: 'Amiri', serif;
+    --font-arabic: 'El Messiri', sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
   }
 
@@ -18,7 +18,7 @@
 }
 
 .font-arabic {
-  font-family: var(--font-arabic);
+  font-family: 'El Messiri', var(--font-arabic), sans-serif;
 }
 
 .tabular-nums {

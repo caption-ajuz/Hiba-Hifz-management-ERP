@@ -6,17 +6,21 @@ import {
   Campus,
   HifzRecord,
   AttendanceSession,
+  AttendanceItemRecord,
   TeacherEvaluation,
   Announcement,
   CollegeEvent,
   TimetableSlot,
+  FeedbackConfig,
+  FeedbackSubmission,
+  TeacherFeedbackReport,
+  MyFeedbackStatusResponse,
 } from '../types';
 import {
   MOCK_STUDENTS,
   MOCK_TEACHERS,
   MOCK_CLASSES,
   INITIAL_HIFZ_RECORDS,
-  INITIAL_ATTENDANCE_SESSION,
   MOCK_ANNOUNCEMENTS,
   MOCK_EVALUATIONS,
 } from '../data/mockData';
@@ -147,6 +151,7 @@ export const api = {
   // Students
   async getStudents(params: { classId?: string; search?: string } = {}): Promise<Student[]> {
     const query = new URLSearchParams();
+    query.set('limit', '200');
     if (params.classId) query.set('classId', params.classId);
     if (params.search) query.set('search', params.search);
 
@@ -157,6 +162,19 @@ export const api = {
   async getStudentById(id: string): Promise<Student | null> {
     const fallback = MOCK_STUDENTS.find((s) => s.id === id) || null;
     return request<Student>(`/api/students/${id}`, {}, fallback as any);
+  },
+
+  async getStudentProfileEditPermission(): Promise<{ campusId: string; allowStudentProfileEdit: boolean }> {
+    return request<{ campusId: string; allowStudentProfileEdit: boolean }>('/api/students/settings/profile-edit');
+  },
+
+  async updateStudentProfileEditPermission(
+    allowStudentProfileEdit: boolean
+  ): Promise<{ campusId: string; allowStudentProfileEdit: boolean }> {
+    return request<{ campusId: string; allowStudentProfileEdit: boolean }>('/api/students/settings/profile-edit', {
+      method: 'PUT',
+      body: JSON.stringify({ allowStudentProfileEdit }),
+    });
   },
 
   async createStudent(student: Partial<Student>): Promise<Student> {
@@ -348,12 +366,12 @@ export const api = {
 
   // Attendance
   async getAttendanceSession(classId: string, date: string, sessionHour: number): Promise<AttendanceSession | null> {
-    const fallback = INITIAL_ATTENDANCE_SESSION;
-    return request<AttendanceSession | null>(
-      `/api/attendance/session?classId=${classId}&date=${date}&sessionHour=${sessionHour}`,
-      {},
-      fallback
-    );
+    const query = new URLSearchParams({
+      classId,
+      date,
+      sessionHour: String(sessionHour),
+    });
+    return request<AttendanceSession | null>(`/api/attendance/session?${query.toString()}`);
   },
 
   async saveAttendanceSession(session: AttendanceSession): Promise<AttendanceSession> {
@@ -363,9 +381,14 @@ export const api = {
     });
   },
 
+  async getStudentAttendance(studentId: string): Promise<AttendanceItemRecord[]> {
+    return request<AttendanceItemRecord[]>(`/api/attendance/student/${encodeURIComponent(studentId)}`);
+  },
+
   // Hifz
   async getHifzRecords(params: { studentId?: string; recordType?: string } = {}): Promise<HifzRecord[]> {
     const query = new URLSearchParams();
+    query.set('limit', '200');
     if (params.studentId) query.set('studentId', params.studentId);
     if (params.recordType) query.set('recordType', params.recordType);
 
@@ -383,7 +406,7 @@ export const api = {
   // Cloudinary Media Upload
   async uploadMedia(
     file: File,
-    folder: 'students' | 'teachers' | 'announcements' | 'institution',
+    folder: 'students' | 'teachers' | 'announcements' | 'institution' | 'events',
     oldPublicId?: string
   ): Promise<{ secure_url: string; public_id: string; optimized_url: string }> {
     const formData = new FormData();
@@ -498,6 +521,60 @@ export const api = {
   async deleteTimetableSlot(id: string): Promise<void> {
     return request<void>(`/api/timetable/${id}`, {
       method: 'DELETE',
+    });
+  },
+
+  // Feedback Management System
+  async getFeedbackConfig(campusId?: string): Promise<FeedbackConfig> {
+    const query = campusId ? `?campusId=${encodeURIComponent(campusId)}` : '';
+    return request<FeedbackConfig>(`/api/feedback/config${query}`);
+  },
+
+  async updateFeedbackConfig(payload: {
+    isEnabled: boolean;
+    term: string;
+    description?: string;
+    questions: FeedbackConfig['questions'];
+  }): Promise<FeedbackConfig> {
+    return request<FeedbackConfig>('/api/feedback/config', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getMyFeedbackStatus(): Promise<MyFeedbackStatusResponse> {
+    return request<MyFeedbackStatusResponse>('/api/feedback/my-status');
+  },
+
+  async submitFeedback(payload: {
+    teacherId: string;
+    answers: Array<{ questionId: string; value: string | number | boolean }>;
+  }): Promise<FeedbackSubmission> {
+    return request<FeedbackSubmission>('/api/feedback/submit', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getFeedbackSubmissions(): Promise<FeedbackSubmission[]> {
+    return request<FeedbackSubmission[]>('/api/feedback/submissions');
+  },
+
+  async getFeedbackReports(teacherId?: string): Promise<TeacherFeedbackReport[]> {
+    const query = teacherId ? `?teacherId=${encodeURIComponent(teacherId)}` : '';
+    return request<TeacherFeedbackReport[]>(`/api/feedback/reports${query}`);
+  },
+
+  async saveFeedbackReport(payload: {
+    teacherId: string;
+    facultyLabel?: string;
+    term?: string;
+    summaryText: string;
+    suggestionsText: string;
+  }): Promise<TeacherFeedbackReport> {
+    return request<TeacherFeedbackReport>('/api/feedback/reports', {
+      method: 'POST',
+      body: JSON.stringify(payload),
     });
   },
 };

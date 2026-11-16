@@ -56,6 +56,7 @@ router.post(
         'parents',
         'institution',
         'announcements',
+        'events',
         'documents',
       ];
 

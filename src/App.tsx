@@ -25,6 +25,10 @@ import {
   AttendanceSession,
   TeacherEvaluation,
   Announcement,
+  CollegeEvent,
+  TimetableSlot,
+  FeedbackConfig,
+  MyFeedbackStatusResponse,
 } from './types';
 import { api, getAuthToken, removeAuthToken } from './services/api';
 import { subscribeToRealtimeEvents } from './services/socket';
@@ -45,6 +49,7 @@ import { ClassManagement } from './components/ClassManagement';
 import { CampusManagement } from './components/CampusManagement';
 import { ReportsModule } from './components/ReportsModule';
 import { EventsModule } from './components/EventsModule';
+import { FeedbackManagement } from './components/FeedbackManagement';
 
 // Modals
 import { AddHifzRecordModal } from './components/AddHifzRecordModal';
@@ -68,7 +73,19 @@ export default function App() {
     return MOCK_USERS.admin;
   });
 
-  const [currentTab, setCurrentTab] = useState<string>('dashboard');
+  const [currentTab, setCurrentTab] = useState<string>(() => {
+    const savedId = localStorage.getItem('hyba_auth_user_id');
+    if (savedId) {
+      return localStorage.getItem(`hyba_active_tab_${savedId}`) || 'dashboard';
+    }
+    return 'dashboard';
+  });
+
+  useEffect(() => {
+    if (isAuthenticated && currentUser.id) {
+      localStorage.setItem(`hyba_active_tab_${currentUser.id}`, currentTab);
+    }
+  }, [isAuthenticated, currentUser.id, currentTab]);
   const [campusManagementAction, setCampusManagementAction] = useState<
     'add' | { type: 'mudeer'; campusId: string } | null
   >(null);
@@ -82,6 +99,11 @@ export default function App() {
   const [attendanceSession, setAttendanceSession] = useState<AttendanceSession>(INITIAL_ATTENDANCE_SESSION);
   const [evaluations, setEvaluations] = useState<TeacherEvaluation[]>(MOCK_EVALUATIONS);
   const [announcements, setAnnouncements] = useState<Announcement[]>(MOCK_ANNOUNCEMENTS);
+  const [events, setEvents] = useState<CollegeEvent[]>([]);
+  const [timetableSlots, setTimetableSlots] = useState<TimetableSlot[]>([]);
+  const [feedbackConfig, setFeedbackConfig] = useState<FeedbackConfig | null>(null);
+  const [myFeedbackStatus, setMyFeedbackStatus] = useState<MyFeedbackStatusResponse | null>(null);
+  const [allowStudentProfileEdit, setAllowStudentProfileEdit] = useState<boolean>(false);
 
   // Modals state
   const [isAddHifzOpen, setIsAddHifzOpen] = useState<boolean>(false);
@@ -97,20 +119,33 @@ export default function App() {
 
     async function fetchAppData() {
       try {
+        let resolvedRole = currentUser.role;
+        let resolvedCampusId = currentUser.campusId;
+
         if (getAuthToken()) {
           try {
             const me = await api.getCurrentUser();
             if (isMounted && me) {
+              resolvedRole = me.role;
+              resolvedCampusId = me.campusId;
               setCurrentUser((prev) => {
                 const sameClasses =
                   JSON.stringify(prev.assignedClassIds || []) ===
                   JSON.stringify(me.assignedClassIds || []);
+                const sameLinked =
+                  JSON.stringify(prev.linkedStudentIds || []) ===
+                  JSON.stringify(me.linkedStudentIds || []);
                 if (
                   prev.id === me.id &&
                   prev.role === me.role &&
                   prev.campusId === me.campusId &&
+                  prev.studentId === me.studentId &&
                   prev.mustChangePassword === me.mustChangePassword &&
-                  sameClasses
+                  prev.email === me.email &&
+                  prev.phone === me.phone &&
+                  prev.avatar === me.avatar &&
+                  sameClasses &&
+                  sameLinked
                 ) {
                   return prev;
                 }
@@ -136,6 +171,10 @@ export default function App() {
           loadedEvals,
           loadedAnnouncements,
           loadedCampuses,
+          loadedEvents,
+          loadedTimetable,
+          loadedFeedbackCfg,
+          loadedProfileEditPerm,
         ] = await Promise.all([
           api.getStudents(),
           api.getTeachers(),
@@ -144,6 +183,10 @@ export default function App() {
           api.getEvaluations(),
           api.getAnnouncements(),
           api.getCampuses(),
+          api.getEvents().catch(() => []),
+          api.getTimetable().catch(() => []),
+          api.getFeedbackConfig().catch(() => null),
+          api.getStudentProfileEditPermission().catch(() => null),
         ]);
 
         if (isMounted) {
@@ -154,6 +197,36 @@ export default function App() {
           if (Array.isArray(loadedEvals)) setEvaluations(loadedEvals);
           if (Array.isArray(loadedAnnouncements)) setAnnouncements(loadedAnnouncements);
           if (Array.isArray(loadedCampuses)) setCampuses(loadedCampuses);
+          if (Array.isArray(loadedEvents)) setEvents(loadedEvents);
+          if (Array.isArray(loadedTimetable)) setTimetableSlots(loadedTimetable);
+          if (loadedFeedbackCfg) setFeedbackConfig(loadedFeedbackCfg);
+
+          if (loadedProfileEditPerm && typeof loadedProfileEditPerm.allowStudentProfileEdit === 'boolean') {
+            setAllowStudentProfileEdit(loadedProfileEditPerm.allowStudentProfileEdit);
+          } else if (Array.isArray(loadedCampuses)) {
+            const matchedCampus = loadedCampuses.find((c) => c.id === resolvedCampusId);
+            if (matchedCampus && typeof matchedCampus.allowStudentProfileEdit === 'boolean') {
+              setAllowStudentProfileEdit(matchedCampus.allowStudentProfileEdit);
+            }
+          }
+        }
+
+        if (resolvedRole === 'STUDENT') {
+          try {
+            const st = await api.getMyFeedbackStatus();
+            if (isMounted && st) {
+              setMyFeedbackStatus(st);
+              if (st.isEnabled && st.requiresSubmission) {
+                setIsFeedbackOpen(true);
+              } else if (!st.isEnabled) {
+                setIsFeedbackOpen(false);
+              }
+            }
+          } catch (fbErr) {
+            console.warn('[HYBA] Could not load student feedback status:', fbErr);
+          }
+        } else if (isMounted) {
+          setMyFeedbackStatus(null);
         }
       } catch (err) {
         console.warn('[HYBA Frontend] Offline fallback active:', err);
@@ -210,6 +283,69 @@ export default function App() {
       onAnnouncementCreated: (newAnn) => {
         setAnnouncements((prev) => [newAnn, ...prev]);
       },
+      onEventCreated: (newEv: CollegeEvent) => {
+        setEvents((prev) => [newEv, ...prev.filter((e) => e.id !== newEv.id)]);
+      },
+      onEventUpdated: (updatedEv: CollegeEvent) => {
+        setEvents((prev) => prev.map((e) => (e.id === updatedEv.id ? updatedEv : e)));
+      },
+      onEventDeleted: (payload: { id: string }) => {
+        setEvents((prev) => prev.filter((e) => e.id !== payload.id));
+      },
+      onTimetableUpdated: () => {
+        api
+          .getTimetable()
+          .then((latest) => {
+            if (isMounted && Array.isArray(latest)) setTimetableSlots(latest);
+          })
+          .catch(() => {});
+      },
+      onFeedbackConfigUpdated: (cfg: FeedbackConfig) => {
+        if (!isMounted) return;
+        setFeedbackConfig(cfg);
+        if (currentUser.role === 'STUDENT') {
+          if (!cfg.isEnabled) {
+            setIsFeedbackOpen(false);
+            setMyFeedbackStatus((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    isEnabled: false,
+                    requiresSubmission: false,
+                    questions: [],
+                    pendingTeachers: [],
+                  }
+                : null
+            );
+          } else {
+            api
+              .getMyFeedbackStatus()
+              .then((st) => {
+                if (!isMounted || !st) return;
+                setMyFeedbackStatus(st);
+                if (st.isEnabled && st.requiresSubmission) {
+                  setIsFeedbackOpen(true);
+                }
+              })
+              .catch(() => {});
+          }
+        }
+      },
+      onStudentProfilePermissionUpdated: (data) => {
+        if (!isMounted) return;
+        if (!data.campusId || !currentUser.campusId || data.campusId === currentUser.campusId) {
+          setAllowStudentProfileEdit(Boolean(data.allowStudentProfileEdit));
+        }
+        if (data.campusId) {
+          setCampuses((prev) =>
+            prev.map((c) =>
+              c.id === data.campusId
+                ? { ...c, allowStudentProfileEdit: Boolean(data.allowStudentProfileEdit) }
+                : c
+            )
+          );
+        }
+      },
     });
 
     return () => {
@@ -224,9 +360,13 @@ export default function App() {
     setCurrentTab('dashboard');
     setCampusManagementAction(null);
     localStorage.setItem('hyba_auth_user_id', user.id);
+    localStorage.setItem(`hyba_active_tab_${user.id}`, 'dashboard');
   };
 
   const handleLogout = () => {
+    if (currentUser.id) {
+      localStorage.removeItem(`hyba_active_tab_${currentUser.id}`);
+    }
     removeAuthToken();
     setIsAuthenticated(false);
     setCurrentTab('dashboard');
@@ -269,21 +409,25 @@ export default function App() {
   };
 
   const handleAddHifzRecord = async (newRecord: HifzRecord) => {
-    setHifzRecords((prev) => [newRecord, ...prev]);
-    try {
-      await api.createHifzRecord(newRecord);
-    } catch (err) {
-      console.error('[HYBA] Error persisting Hifz record:', err);
-    }
+    const created = await api.createHifzRecord(newRecord);
+    const resolved = created && created.id ? created : newRecord;
+    setHifzRecords((prev) => [
+      resolved,
+      ...prev.filter((r) => r.id !== resolved.id && r.id !== newRecord.id),
+    ]);
   };
 
-  const handleSaveAttendanceSession = async (session: AttendanceSession) => {
-    setAttendanceSession(session);
-    try {
-      await api.saveAttendanceSession(session);
-    } catch (err) {
-      console.error('[HYBA] Error persisting attendance:', err);
-    }
+  const handleSaveAttendanceSession = async (session: AttendanceSession): Promise<AttendanceSession> => {
+    const saved = await api.saveAttendanceSession(session);
+    const resolved = saved || session;
+    setAttendanceSession(resolved);
+    api
+      .getStudents()
+      .then((latest) => {
+        if (Array.isArray(latest)) setStudents(latest);
+      })
+      .catch(() => {});
+    return resolved;
   };
 
   const refreshRosterAndClasses = async () => {
@@ -315,6 +459,16 @@ export default function App() {
 
   const handleStudentUpdated = (updated: Student) => {
     setStudents((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+    if (currentUser.role === 'STUDENT' && currentUser.studentId === updated.id) {
+      setCurrentUser((prev) => ({
+        ...prev,
+        fullName: updated.fullName || prev.fullName,
+        arabicName: updated.arabicName ?? prev.arabicName,
+        email: updated.email ?? prev.email,
+        phone: updated.phone ?? prev.phone,
+        avatar: updated.photo !== undefined ? updated.photo : prev.avatar,
+      }));
+    }
   };
 
   const handleCompleteEvaluation = async (evalId: string, ratings: any) => {
@@ -392,11 +546,12 @@ export default function App() {
               announcements={announcements}
               currentUser={currentUser}
               assignedCampus={assignedCampus}
+              feedbackEnabled={Boolean(feedbackConfig?.isEnabled)}
               onNavigate={setCurrentTab}
               onOpenAttendance={() => setCurrentTab('attendance')}
               onOpenAddHifz={() => setIsAddHifzOpen(true)}
               onOpenTimetable={() => setIsTimetableOpen(true)}
-              onOpenFeedback={() => setIsFeedbackOpen(true)}
+              onOpenFeedback={() => setCurrentTab('feedback')}
               onOpenChangePassword={() => setIsChangePasswordOpen(true)}
             />
           );
@@ -418,6 +573,9 @@ export default function App() {
             scopedStudents.find((s) => s.id === currentUser.studentId) ||
             scopedStudents[0] ||
             MOCK_STUDENTS[4];
+          const studentFeedbackEnabled = Boolean(
+            myFeedbackStatus?.isEnabled ?? feedbackConfig?.isEnabled
+          );
           return (
             <StudentDashboard
               currentUser={currentUser}
@@ -425,9 +583,17 @@ export default function App() {
               classes={scopedClasses}
               records={scopedHifzRecords}
               evaluations={evaluations}
+              events={events}
+              announcements={announcements}
+              timetableSlots={timetableSlots}
+              feedbackEnabled={studentFeedbackEnabled}
+              feedbackPendingCount={myFeedbackStatus?.pendingTeachers?.length ?? 0}
+              allowStudentProfileEdit={allowStudentProfileEdit}
               onOpenIdCard={() => handleOpenIdCard(studentObj)}
               onOpenTimetable={() => setIsTimetableOpen(true)}
-              onOpenFeedback={() => setIsFeedbackOpen(true)}
+              onOpenFeedback={() => {
+                if (studentFeedbackEnabled) setIsFeedbackOpen(true);
+              }}
               onOpenChangePassword={() => setIsChangePasswordOpen(true)}
               onNavigate={setCurrentTab}
               onStudentUpdated={handleStudentUpdated}
@@ -439,7 +605,10 @@ export default function App() {
               currentUser={currentUser}
               students={scopedStudents}
               records={scopedHifzRecords}
+              timetableSlots={timetableSlots}
               onOpenIdCard={handleOpenIdCard}
+              onOpenTimetable={() => setIsTimetableOpen(true)}
+              onOpenChangePassword={() => setIsChangePasswordOpen(true)}
               onNavigate={setCurrentTab}
             />
           );
@@ -450,6 +619,39 @@ export default function App() {
         return null;
 
       case 'attendance':
+        if (currentUser.role === 'STUDENT') {
+          const studentObj =
+            scopedStudents.find((s) => s.id === currentUser.studentId) ||
+            scopedStudents[0] ||
+            MOCK_STUDENTS[4];
+          const studentFeedbackEnabled = Boolean(
+            myFeedbackStatus?.isEnabled ?? feedbackConfig?.isEnabled
+          );
+          return (
+            <StudentDashboard
+              currentUser={currentUser}
+              student={studentObj}
+              classes={scopedClasses}
+              records={scopedHifzRecords}
+              evaluations={evaluations}
+              events={events}
+              announcements={announcements}
+              timetableSlots={timetableSlots}
+              feedbackEnabled={studentFeedbackEnabled}
+              feedbackPendingCount={myFeedbackStatus?.pendingTeachers?.length ?? 0}
+              allowStudentProfileEdit={allowStudentProfileEdit}
+              initialPortalTab="attendance"
+              onOpenIdCard={() => handleOpenIdCard(studentObj)}
+              onOpenTimetable={() => setIsTimetableOpen(true)}
+              onOpenFeedback={() => {
+                if (studentFeedbackEnabled) setIsFeedbackOpen(true);
+              }}
+              onOpenChangePassword={() => setIsChangePasswordOpen(true)}
+              onNavigate={setCurrentTab}
+              onStudentUpdated={handleStudentUpdated}
+            />
+          );
+        }
         return (
           <AttendanceModule
             students={scopedStudents}
@@ -485,6 +687,17 @@ export default function App() {
             teachers={scopedTeachers}
             currentUser={currentUser}
             assignedCampus={assignedCampus}
+            allowStudentProfileEdit={allowStudentProfileEdit}
+            onProfileEditPermissionChanged={(enabled) => {
+              setAllowStudentProfileEdit(enabled);
+              setCampuses((prev) =>
+                prev.map((c) =>
+                  c.id === (assignedCampus?.id || currentUser.campusId)
+                    ? { ...c, allowStudentProfileEdit: enabled }
+                    : c
+                )
+              );
+            }}
             onOpenIdCard={handleOpenIdCard}
             onAddStudent={handleAddStudent}
             onUpdateStudent={handleStudentUpdated}
@@ -526,7 +739,27 @@ export default function App() {
         );
 
       case 'events':
-        return <EventsModule currentUser={currentUser} />;
+        return (
+          <EventsModule
+            currentUser={currentUser}
+            events={events}
+            onEventsChanged={setEvents}
+          />
+        );
+
+      case 'feedback':
+        if (currentUser.role !== 'MUDEER') {
+          return null;
+        }
+        return (
+          <FeedbackManagement
+            currentUser={currentUser}
+            teachers={scopedTeachers}
+            classes={scopedClasses}
+            config={feedbackConfig}
+            onConfigUpdated={(cfg) => setFeedbackConfig(cfg)}
+          />
+        );
 
       case 'reports':
         return (
@@ -542,12 +775,18 @@ export default function App() {
     }
   };
 
+  const navFeedbackEnabled =
+    currentUser.role === 'STUDENT'
+      ? Boolean(myFeedbackStatus?.isEnabled ?? feedbackConfig?.isEnabled)
+      : Boolean(feedbackConfig?.isEnabled ?? true);
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-emerald-100 selection:text-emerald-900 antialiased overflow-x-hidden">
       <Navbar
         currentUser={currentUser}
         assignedCampus={assignedCampus}
         currentTab={currentTab}
+        feedbackEnabled={navFeedbackEnabled}
         onTabChange={setCurrentTab}
         onOpenAttendance={() => setCurrentTab('attendance')}
         onOpenAddHifz={() => {
@@ -557,7 +796,13 @@ export default function App() {
         }}
         onOpenIdCard={() => handleOpenIdCard()}
         onOpenTimetable={() => setIsTimetableOpen(true)}
-        onOpenFeedback={() => setIsFeedbackOpen(true)}
+        onOpenFeedback={() => {
+          if (currentUser.role === 'MUDEER') {
+            setCurrentTab('feedback');
+          } else if (navFeedbackEnabled) {
+            setIsFeedbackOpen(true);
+          }
+        }}
         onOpenChangePassword={() => setIsChangePasswordOpen(true)}
         onOpenAddCampus={
           currentUser.role === 'HYBA_SUPER_ADMIN'
@@ -625,14 +870,26 @@ export default function App() {
         isOpen={isTimetableOpen}
         onClose={() => setIsTimetableOpen(false)}
         currentUser={currentUser}
+        slots={timetableSlots}
+        onTimetableChanged={setTimetableSlots}
       />
 
       <FeedbackModal
         isOpen={isFeedbackOpen}
         onClose={() => setIsFeedbackOpen(false)}
         currentUser={currentUser}
-        evaluations={evaluations}
-        onCompleteEvaluation={handleCompleteEvaluation}
+        feedbackStatus={myFeedbackStatus}
+        isMandatory={Boolean(
+          currentUser.role === 'STUDENT' &&
+            myFeedbackStatus?.isEnabled &&
+            myFeedbackStatus?.requiresSubmission
+        )}
+        onSubmitted={async () => {
+          if (currentUser.role === 'STUDENT') {
+            const st = await api.getMyFeedbackStatus().catch(() => null);
+            if (st) setMyFeedbackStatus(st);
+          }
+        }}
       />
 
       <ChangePasswordModal

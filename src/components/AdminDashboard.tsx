@@ -10,6 +10,7 @@ import {
   Campus,
 } from '../types';
 import { getFacultyDisplayList, sortBatchesWithPriority } from '../utils/batchUtils';
+import { DEFAULT_STUDENT_AVATAR, getStudentPhotoSrc } from '../utils/avatarUtils';
 import {
   Users,
   GraduationCap,
@@ -20,6 +21,11 @@ import {
   KeyRound,
   MapPin,
   Layers,
+  Calendar,
+  Clock,
+  MessageSquare,
+  FileText,
+  ChevronRight,
 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -30,6 +36,7 @@ interface AdminDashboardProps {
   announcements: Announcement[];
   currentUser: UserProfile;
   assignedCampus?: Campus;
+  feedbackEnabled?: boolean;
   onNavigate: (tab: string) => void;
   onOpenAttendance: () => void;
   onOpenAddHifz: () => void;
@@ -46,10 +53,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   announcements,
   currentUser,
   assignedCampus,
+  feedbackEnabled = true,
   onNavigate,
   onOpenAttendance,
   onOpenAddHifz,
   onOpenTimetable,
+  onOpenFeedback,
   onOpenChangePassword,
 }) => {
   const totalStudentsCount = students.length;
@@ -219,6 +228,151 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       </div>
 
+      {/* Organized Mudir Portal Menu (Modeled cleanly on Portal Menu Architecture) */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 pb-2.5 border-b border-slate-100">
+          <div>
+            <h2 className="text-sm sm:text-base font-bold text-slate-900">Mudir Portal Menu</h2>
+            <p className="text-[11px] text-slate-500">
+              Organized campus operations, registry modules, feedback center & academic tools
+            </p>
+          </div>
+          <span className="text-[11px] font-mono text-emerald-800 font-semibold">
+            {assignedCampus?.code || 'HYBA-MAIN'}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {[
+            {
+              group: 'Academic Operations',
+              items: [
+                {
+                  id: 'attendance',
+                  label: 'Daily Attendance',
+                  sub: '5-hour session marking & tracking',
+                  icon: CalendarCheck,
+                  tone: 'bg-emerald-50 text-emerald-700',
+                  action: onOpenAttendance,
+                },
+                {
+                  id: 'hifz',
+                  label: 'Hifz Records & Evaluations',
+                  sub: 'Sabq, Murajath & Manzil logbook',
+                  icon: BookOpen,
+                  tone: 'bg-teal-50 text-teal-700',
+                  action: () => onNavigate('hifz'),
+                },
+                {
+                  id: 'timetable',
+                  label: 'Campus Timetable',
+                  sub: 'Manage D1–D5 bell schedule & rooms',
+                  icon: Clock,
+                  tone: 'bg-indigo-50 text-indigo-700',
+                  action: onOpenTimetable,
+                },
+              ],
+            },
+            {
+              group: 'Campus Registry & Batches',
+              items: [
+                {
+                  id: 'students',
+                  label: 'Students Directory',
+                  sub: `${totalStudentsCount} enrolled Talaba & ID cards`,
+                  icon: GraduationCap,
+                  tone: 'bg-sky-50 text-sky-700',
+                  action: () => onNavigate('students'),
+                },
+                {
+                  id: 'teachers',
+                  label: 'Usthad & Faculty Roster',
+                  sub: `${teachers.length} faculty members & batches`,
+                  icon: Users,
+                  tone: 'bg-amber-50 text-amber-700',
+                  action: () => onNavigate('teachers'),
+                },
+                {
+                  id: 'classes',
+                  label: 'Class Batches',
+                  sub: `${classes.length} active Hifz & academic halls`,
+                  icon: Layers,
+                  tone: 'bg-slate-100 text-slate-700',
+                  action: () => onNavigate('classes'),
+                },
+              ],
+            },
+            {
+              group: 'Feedback, Events & Reports',
+              items: [
+                {
+                  id: 'feedback',
+                  label: 'Feedback Management',
+                  sub: feedbackEnabled
+                    ? 'Active · Questions, teacher reviews & reports'
+                    : 'Paused · Click to configure or enable',
+                  icon: MessageSquare,
+                  tone: feedbackEnabled
+                    ? 'bg-emerald-50 text-emerald-800'
+                    : 'bg-slate-100 text-slate-600',
+                  action: onOpenFeedback,
+                },
+                {
+                  id: 'events',
+                  label: 'Events & Calendar',
+                  sub: 'Publish programs, posters & notices',
+                  icon: Calendar,
+                  tone: 'bg-purple-50 text-purple-700',
+                  action: () => onNavigate('events'),
+                },
+                {
+                  id: 'reports',
+                  label: 'Assessment Reports',
+                  sub: 'Batch analytics & progress exports',
+                  icon: FileText,
+                  tone: 'bg-rose-50 text-rose-700',
+                  action: () => onNavigate('reports'),
+                },
+              ],
+            },
+          ].map((section) => (
+            <div key={section.group} className="space-y-2">
+              <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-1">
+                {section.group}
+              </div>
+              <div className="rounded-2xl border border-slate-200 divide-y divide-slate-100 overflow-hidden bg-white">
+                {section.items.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={item.action}
+                      className="w-full p-3 flex items-center justify-between gap-2.5 text-left hover:bg-slate-50 transition-colors cursor-pointer group"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div
+                          className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${item.tone}`}
+                        >
+                          <Icon className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-xs font-bold text-slate-900 group-hover:text-emerald-800 truncate">
+                            {item.label}
+                          </div>
+                          <div className="text-[11px] text-slate-500 truncate">{item.sub}</div>
+                        </div>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-0.5 transition-transform shrink-0" />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* Batch Assignments Overview (Visible to Campus Mudeer, including Mudeer faculty role) */}
       <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-3">
         <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
@@ -359,10 +513,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <div className="flex items-start gap-2.5 min-w-0">
                       {student && (
                         <img
-                          src={student.photo}
+                          src={getStudentPhotoSrc(student.photo)}
                           alt={student.fullName}
-                          className="w-8 h-8 rounded-full object-cover border border-slate-200 mt-0.5 shrink-0"
+                          className="w-8 h-8 rounded-full object-cover border border-slate-200 mt-0.5 shrink-0 bg-slate-100"
                           referrerPolicy="no-referrer"
+                          onError={(e) => {
+                            e.currentTarget.src = DEFAULT_STUDENT_AVATAR;
+                          }}
                         />
                       )}
                       <div className="min-w-0">

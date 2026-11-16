@@ -6,6 +6,7 @@ import {
   UserProfile,
 } from '../types';
 import { JUZ_NAMES } from '../data/quranData';
+import { getStudentPhotoSrc } from '../utils/avatarUtils';
 import {
   BookOpen,
   Sparkles,
@@ -196,7 +197,7 @@ export const HifzModule: React.FC<HifzModuleProps> = ({
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
             <div className="flex items-center gap-3">
               <img
-                src={heatmapStudent.photo}
+                src={getStudentPhotoSrc(heatmapStudent.photo)}
                 alt={heatmapStudent.fullName}
                 className="w-12 h-12 rounded-full object-cover border-2 border-emerald-500 shadow-xs"
                 referrerPolicy="no-referrer"
@@ -349,7 +350,7 @@ export const HifzModule: React.FC<HifzModuleProps> = ({
                     {student && (
                       <div className="flex items-center gap-2.5 mt-3">
                         <img
-                          src={student.photo}
+                          src={getStudentPhotoSrc(student.photo)}
                           alt={student.fullName}
                           className="w-9 h-9 rounded-full object-cover border border-slate-200"
                           referrerPolicy="no-referrer"

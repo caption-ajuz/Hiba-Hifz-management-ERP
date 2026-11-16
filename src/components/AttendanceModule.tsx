@@ -6,7 +6,9 @@ import {
   ClassBatch,
   UserProfile,
 } from '../types';
+import { api } from '../services/api';
 import { getUsthadEffectiveClassIds, sortBatchesWithPriority } from '../utils/batchUtils';
+import { getStudentPhotoSrc } from '../utils/avatarUtils';
 import {
   Calendar,
   CheckCircle2,
@@ -24,6 +26,8 @@ import {
   User,
   Sparkles,
   Save,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
 
 interface AttendanceModuleProps {
@@ -31,7 +35,7 @@ interface AttendanceModuleProps {
   classes: ClassBatch[];
   currentUser: UserProfile;
   initialSession: AttendanceSession;
-  onSaveSession: (session: AttendanceSession) => void;
+  onSaveSession: (session: AttendanceSession) => Promise<AttendanceSession | void> | void;
 }
 
 export const AttendanceModule: React.FC<AttendanceModuleProps> = ({
@@ -64,7 +68,23 @@ export const AttendanceModule: React.FC<AttendanceModuleProps> = ({
     return ordered;
   }, [currentUser, classes, students, isUsthad]);
 
+  const selectionStorageKey = `hyba_att_selection_${currentUser.id}`;
+  const getTodayIso = () => new Date().toISOString().split('T')[0];
+
+  const readSavedSelection = (): { classId?: string; date?: string; sessionHour?: number } => {
+    try {
+      const raw = localStorage.getItem(selectionStorageKey);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  };
+
   const [selectedClassId, setSelectedClassId] = useState<string>(() => {
+    const saved = readSavedSelection();
+    if (saved.classId && allowedClasses.some((c) => c.id === saved.classId)) {
+      return saved.classId;
+    }
     if (isUsthad && allowedClasses.length > 0) return allowedClasses[0].id;
     if (allowedClasses.some((c) => c.id === initialSession.classId)) return initialSession.classId;
     return allowedClasses[0]?.id || classes[0]?.id || '';
@@ -75,19 +95,88 @@ export const AttendanceModule: React.FC<AttendanceModuleProps> = ({
       setSelectedClassId(allowedClasses[0].id);
     }
   }, [allowedClasses, selectedClassId]);
-  const [selectedDate, setSelectedDate] = useState<string>(initialSession.date || '2026-11-07');
-  const [selectedHour, setSelectedHour] = useState<number>(initialSession.sessionHour || 1);
-  const [sessionTopic, setSessionTopic] = useState<string>(initialSession.topic || 'Surah Al-Anbiya & Juz 17 Murajath');
-  const [sessionDesc, setSessionDesc] = useState<string>(
-    initialSession.description || 'Morning Fajr session. Checked individual Sabq memorization.'
-  );
+
+  const [selectedDate, setSelectedDate] = useState<string>(() => {
+    const saved = readSavedSelection();
+    return saved.date || getTodayIso();
+  });
+  const [selectedHour, setSelectedHour] = useState<number>(() => {
+    const saved = readSavedSelection();
+    const hr = Number(saved.sessionHour);
+    return hr >= 1 && hr <= 5 ? hr : initialSession.sessionHour || 1;
+  });
+  const [sessionTopic, setSessionTopic] = useState<string>('');
+  const [sessionDesc, setSessionDesc] = useState<string>('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [sortBy, setSortBy] = useState<'roll' | 'name'>('roll');
-  const [records, setRecords] = useState<Record<string, AttendanceStatus>>(initialSession.records || {});
+  const [records, setRecords] = useState<Record<string, AttendanceStatus>>({});
   const [activeStudentHover, setActiveStudentHover] = useState<Student | null>(null);
   const [showUnmarkedModal, setShowUnmarkedModal] = useState<boolean>(false);
   const [showSuccessToast, setShowSuccessToast] = useState<boolean>(false);
+  const [isLoadingSession, setIsLoadingSession] = useState<boolean>(false);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [savedSessionInfo, setSavedSessionInfo] = useState<{ id: string; submittedAt?: string } | null>(null);
+
+  // Persist active date, class, and hour across browser reloads
+  useEffect(() => {
+    if (!selectedClassId) return;
+    try {
+      localStorage.setItem(
+        selectionStorageKey,
+        JSON.stringify({
+          classId: selectedClassId,
+          date: selectedDate,
+          sessionHour: selectedHour,
+        })
+      );
+    } catch {
+      // ignore storage quota errors
+    }
+  }, [selectionStorageKey, selectedClassId, selectedDate, selectedHour]);
+
+  // Fetch existing saved attendance session from backend whenever class, date, or hour changes
+  useEffect(() => {
+    if (!selectedClassId || !selectedDate) return;
+    let active = true;
+    setIsLoadingSession(true);
+    setLoadError(null);
+
+    api
+      .getAttendanceSession(selectedClassId, selectedDate, selectedHour)
+      .then((session) => {
+        if (!active) return;
+        if (session) {
+          setRecords(session.records || {});
+          setSessionTopic(session.topic || '');
+          setSessionDesc(session.description || '');
+          setSavedSessionInfo({
+            id: session.id,
+            submittedAt: session.submittedAt,
+          });
+        } else {
+          setRecords({});
+          setSessionTopic('');
+          setSessionDesc('');
+          setSavedSessionInfo(null);
+        }
+      })
+      .catch((err: any) => {
+        if (!active) return;
+        setRecords({});
+        setSavedSessionInfo(null);
+        setLoadError(err?.message || 'Could not load saved attendance record.');
+      })
+      .finally(() => {
+        if (active) setIsLoadingSession(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [selectedClassId, selectedDate, selectedHour]);
 
   // Filter students by selected class
   const classStudents = students.filter((s) => s.classId === selectedClassId);
@@ -172,31 +261,50 @@ export const AttendanceModule: React.FC<AttendanceModuleProps> = ({
   };
 
   const handleSubmit = () => {
+    if (isSaving || isLoadingSession) return;
     if (notMarkedCount > 0) {
       setShowUnmarkedModal(true);
       return;
     }
-    saveSessionData();
+    void saveSessionData();
   };
 
-  const saveSessionData = () => {
+  const saveSessionData = async (overrideRecords?: Record<string, AttendanceStatus>) => {
+    if (isSaving || !selectedClassId) return;
+    const recordsToSave = overrideRecords ?? records;
+
     const sessionObj: AttendanceSession = {
-      id: `session_${selectedClassId}_${selectedDate}_h${selectedHour}`,
+      id: savedSessionInfo?.id || `att_${selectedClassId}_${selectedDate}_h${selectedHour}`,
       classId: selectedClassId,
       date: selectedDate,
       sessionHour: selectedHour,
       sessionName: `Hour ${selectedHour} · ${sessionHours.find((h) => h.hour === selectedHour)?.name || ''}`,
       usthadId: currentUser.id,
-      topic: sessionTopic || 'Tahfeez Daily Session',
-      description: sessionDesc,
-      records: records,
+      topic: sessionTopic.trim() || 'Tahfeez Daily Session',
+      description: sessionDesc.trim(),
+      records: recordsToSave,
       submittedAt: new Date().toISOString(),
     };
 
-    onSaveSession(sessionObj);
-    setShowUnmarkedModal(false);
-    setShowSuccessToast(true);
-    setTimeout(() => setShowSuccessToast(false), 3500);
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      const saved = await onSaveSession(sessionObj);
+      const finalSession = saved || sessionObj;
+      setRecords(finalSession.records || recordsToSave);
+      setSavedSessionInfo({
+        id: finalSession.id || sessionObj.id,
+        submittedAt: finalSession.submittedAt || sessionObj.submittedAt,
+      });
+      setShowUnmarkedModal(false);
+      setShowSuccessToast(true);
+      setTimeout(() => setShowSuccessToast(false), 3500);
+    } catch (err: any) {
+      setSaveError(err?.message || 'Failed to save attendance. Please try again.');
+      setShowUnmarkedModal(false);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const currentClassObj = classes.find((c) => c.id === selectedClassId) || classes[0];
@@ -216,13 +324,50 @@ export const AttendanceModule: React.FC<AttendanceModuleProps> = ({
         </div>
       )}
 
+      {/* Error Alerts */}
+      {(saveError || loadError) && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 rounded-2xl text-xs font-semibold flex items-center justify-between gap-2 shadow-2xs">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>{saveError || loadError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setSaveError(null);
+              setLoadError(null);
+            }}
+            className="text-rose-700 hover:text-rose-950 font-bold cursor-pointer"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {/* Top Header Card */}
       <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/90 p-4 sm:p-6 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-700">
-              <Calendar className="w-3.5 h-3.5" />
-              <span>Daily Attendance Ledger</span>
+            <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-emerald-700">
+              <span className="inline-flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5" />
+                <span>Daily Attendance Ledger</span>
+              </span>
+              {isLoadingSession ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-semibold normal-case tracking-normal">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Loading saved session...
+                </span>
+              ) : savedSessionInfo ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-semibold normal-case tracking-normal">
+                  <CheckCircle2 className="w-3 h-3" />
+                  Saved Record Loaded
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-semibold normal-case tracking-normal">
+                  Not Marked Yet
+                </span>
+              )}
             </div>
             <h1 className="text-lg sm:text-2xl font-extrabold text-slate-900 tracking-tight mt-0.5">
               Attendance Register & Status Grid
@@ -481,7 +626,7 @@ export const AttendanceModule: React.FC<AttendanceModuleProps> = ({
             <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 mt-2">
               <div className="flex items-center gap-2.5">
                 <img
-                  src={activeStudentHover.photo}
+                  src={getStudentPhotoSrc(activeStudentHover.photo)}
                   alt={activeStudentHover.fullName}
                   className="w-8 h-8 rounded-full object-cover border border-slate-200"
                   referrerPolicy="no-referrer"
@@ -630,10 +775,20 @@ export const AttendanceModule: React.FC<AttendanceModuleProps> = ({
           {!isReadOnly ? (
             <button
               onClick={handleSubmit}
-              className="w-full sm:w-auto px-6 py-3 bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white font-bold text-xs sm:text-sm rounded-xl shadow-md transition-colors flex items-center justify-center gap-2 cursor-pointer"
+              disabled={isSaving || isLoadingSession || !selectedClassId}
+              className="w-full sm:w-auto px-6 py-3 bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 disabled:opacity-60 text-white font-bold text-xs sm:text-sm rounded-xl shadow-md transition-colors flex items-center justify-center gap-2 cursor-pointer"
             >
-              <Save className="w-4 h-4" />
-              <span>Submit Attendance</span>
+              {isSaving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Saving Attendance...</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  <span>{savedSessionInfo ? 'Update Attendance' : 'Submit Attendance'}</span>
+                </>
+              )}
             </button>
           ) : (
             <div className="text-xs font-semibold text-slate-500 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
@@ -659,10 +814,11 @@ export const AttendanceModule: React.FC<AttendanceModuleProps> = ({
 
             <div className="pt-2 flex flex-col gap-2">
               <button
-                onClick={saveSessionData}
-                className="w-full py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl"
+                onClick={() => void saveSessionData()}
+                disabled={isSaving}
+                className="w-full py-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-60 text-white font-bold text-xs rounded-xl cursor-pointer"
               >
-                Save Attendance As-Is
+                {isSaving ? 'Saving...' : 'Save Attendance As-Is'}
               </button>
               <button
                 onClick={() => {
@@ -673,15 +829,16 @@ export const AttendanceModule: React.FC<AttendanceModuleProps> = ({
                     }
                   });
                   setRecords(updated);
-                  saveSessionData();
+                  void saveSessionData(updated);
                 }}
-                className="w-full py-2 bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 font-bold text-xs rounded-xl"
+                disabled={isSaving}
+                className="w-full py-2 bg-rose-50 hover:bg-rose-100 disabled:opacity-60 text-rose-800 border border-rose-200 font-bold text-xs rounded-xl cursor-pointer"
               >
                 Mark Unmarked as Absent & Save
               </button>
               <button
                 onClick={() => setShowUnmarkedModal(false)}
-                className="w-full py-1.5 text-xs text-slate-500 font-semibold hover:text-slate-700"
+                className="w-full py-1.5 text-xs text-slate-500 font-semibold hover:text-slate-700 cursor-pointer"
               >
                 Review Unmarked
               </button>

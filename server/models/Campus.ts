@@ -17,6 +17,7 @@ export interface ICampus extends Document {
   mudeerUsername?: string;
   mudeerEmail?: string;
   mudeerPhone?: string;
+  allowStudentProfileEdit?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -39,6 +40,7 @@ const CampusSchema = new Schema<ICampus>(
     mudeerUsername: { type: String, default: '' },
     mudeerEmail: { type: String, default: '' },
     mudeerPhone: { type: String, default: '' },
+    allowStudentProfileEdit: { type: Boolean, default: false },
   },
   {
     timestamps: true,

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, Check, Plus, Star, Sparkles } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Check, Star } from 'lucide-react';
 import { ALL_FAVORITES_OPTIONS } from '../../data/studentPortalData';
 
 interface StudentFavoritesModalProps {
@@ -7,6 +7,7 @@ interface StudentFavoritesModalProps {
   onClose: () => void;
   pinnedIds: string[];
   onSavePinned: (newIds: string[]) => void;
+  feedbackEnabled?: boolean;
 }
 
 export const StudentFavoritesModal: React.FC<StudentFavoritesModalProps> = ({
@@ -14,10 +15,19 @@ export const StudentFavoritesModal: React.FC<StudentFavoritesModalProps> = ({
   onClose,
   pinnedIds,
   onSavePinned,
+  feedbackEnabled = false,
 }) => {
   const [selectedIds, setSelectedIds] = useState<string[]>(pinnedIds);
 
+  useEffect(() => {
+    setSelectedIds(pinnedIds);
+  }, [pinnedIds, isOpen]);
+
   if (!isOpen) return null;
+
+  const availableOptions = ALL_FAVORITES_OPTIONS.filter(
+    (item) => feedbackEnabled || item.id !== 'fav_feedback'
+  );
 
   const togglePin = (id: string) => {
     setSelectedIds((prev) =>
@@ -26,14 +36,14 @@ export const StudentFavoritesModal: React.FC<StudentFavoritesModalProps> = ({
   };
 
   const handleSave = () => {
-    onSavePinned(selectedIds);
+    const validSet = new Set(availableOptions.map((o) => o.id));
+    onSavePinned(selectedIds.filter((id) => validSet.has(id)));
     onClose();
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs">
       <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden animate-fade-in flex flex-col max-h-[85vh]">
-        {/* Header */}
         <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-2xl bg-amber-50 text-amber-600 border border-amber-100 flex items-center justify-center">
@@ -52,13 +62,12 @@ export const StudentFavoritesModal: React.FC<StudentFavoritesModalProps> = ({
           </button>
         </div>
 
-        {/* Content List */}
         <div className="p-4 overflow-y-auto space-y-2 flex-1">
           <div className="text-xs text-slate-500 px-1 pb-1">
             Selected: <strong className="text-slate-900">{selectedIds.length}</strong> items pinned
           </div>
 
-          {ALL_FAVORITES_OPTIONS.map((item) => {
+          {availableOptions.map((item) => {
             const isPinned = selectedIds.includes(item.id);
 
             return (
@@ -67,7 +76,7 @@ export const StudentFavoritesModal: React.FC<StudentFavoritesModalProps> = ({
                 onClick={() => togglePin(item.id)}
                 className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${
                   isPinned
-                    ? 'border-indigo-300 bg-indigo-50/60 shadow-2xs'
+                    ? 'border-emerald-300 bg-emerald-50/60 shadow-2xs'
                     : 'border-slate-200 hover:border-slate-300 bg-white'
                 }`}
               >
@@ -75,7 +84,7 @@ export const StudentFavoritesModal: React.FC<StudentFavoritesModalProps> = ({
                   <div
                     className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs ${
                       isPinned
-                        ? 'bg-indigo-600 text-white'
+                        ? 'bg-emerald-700 text-white'
                         : 'bg-slate-100 text-slate-600'
                     }`}
                   >
@@ -85,8 +94,8 @@ export const StudentFavoritesModal: React.FC<StudentFavoritesModalProps> = ({
                     <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
                       <span>{item.title}</span>
                       {item.badge && (
-                        <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-800">
-                          {item.badge}
+                        <span className="text-[10px] font-semibold text-amber-700">
+                          · {item.badge}
                         </span>
                       )}
                     </div>
@@ -97,7 +106,7 @@ export const StudentFavoritesModal: React.FC<StudentFavoritesModalProps> = ({
                 <div
                   className={`w-6 h-6 rounded-full flex items-center justify-center border transition-all ${
                     isPinned
-                      ? 'bg-indigo-600 border-indigo-600 text-white'
+                      ? 'bg-emerald-700 border-emerald-700 text-white'
                       : 'border-slate-300 bg-white text-transparent'
                   }`}
                 >
@@ -108,7 +117,6 @@ export const StudentFavoritesModal: React.FC<StudentFavoritesModalProps> = ({
           })}
         </div>
 
-        {/* Footer */}
         <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
           <button
             onClick={() => setSelectedIds([])}
@@ -125,7 +133,7 @@ export const StudentFavoritesModal: React.FC<StudentFavoritesModalProps> = ({
             </button>
             <button
               onClick={handleSave}
-              className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 rounded-xl shadow-xs transition-colors cursor-pointer"
+              className="px-5 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-xl shadow-xs transition-colors cursor-pointer"
             >
               Save Favorites
             </button>

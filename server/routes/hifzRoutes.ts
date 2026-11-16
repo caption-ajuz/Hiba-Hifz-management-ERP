@@ -53,7 +53,7 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
     const user = req.user!;
     const { studentId, recordType, date, page, limit } = req.query;
     const pageNum = Math.max(1, parseInt(page as string) || 1);
-    const limitNum = Math.min(100, Math.max(1, parseInt(limit as string) || 50));
+    const limitNum = Math.min(500, Math.max(1, parseInt(limit as string) || 200));
     const skip = (pageNum - 1) * limitNum;
 
     if (!isMongoReady()) {

@@ -37,6 +37,7 @@ export interface Campus {
   mudeerUsername?: string;
   mudeerEmail?: string;
   mudeerPhone?: string;
+  allowStudentProfileEdit?: boolean;
   studentCount?: number;
   teacherCount?: number;
   classCount?: number;
@@ -62,7 +63,11 @@ export interface Student {
   arabicName: string;
   photo: string;
   photoPublicId?: string;
+  email?: string;
   phone?: string;
+  about?: string;
+  address?: string;
+  bloodGroup?: string;
   dateOfBirth: string;
   gender: 'Male' | 'Female';
   parentName: string;
@@ -102,6 +107,21 @@ export interface AttendanceRecord {
   rollNumber: number;
   status: AttendanceStatus;
   note?: string;
+}
+
+export interface AttendanceItemRecord {
+  id?: string;
+  studentId: string;
+  classId: string;
+  date: string; // YYYY-MM-DD
+  sessionHour: number; // 1 to 5
+  status: AttendanceStatus;
+  markedByUsthadId?: string;
+  markedByName?: string;
+  topic?: string;
+  description?: string;
+  sessionName?: string;
+  academicYear?: string;
 }
 
 export interface AttendanceSession {
@@ -207,6 +227,8 @@ export interface CollegeEvent {
   campusId?: string;
   targetAudience: 'ALL' | 'STUDENTS' | 'PARENTS' | 'TEACHERS';
   status: EventStatus;
+  posterUrl?: string;
+  posterPublicId?: string;
   createdBy?: string;
   creatorRole?: string;
   isImportant?: boolean;
@@ -224,5 +246,91 @@ export interface TimetableSlot {
   color?: string;
   tag?: string;
   classId?: string;
+  campusId?: string;
 }
+
+export type FeedbackAnswerType = 'RATING_5' | 'MULTIPLE_CHOICE' | 'YES_NO' | 'TEXT';
+
+export interface FeedbackQuestion {
+  id: string;
+  prompt: string;
+  arabicPrompt?: string;
+  type: FeedbackAnswerType;
+  required: boolean;
+  options?: string[];
+  isActive: boolean;
+  order: number;
+}
+
+export interface FeedbackConfig {
+  campusId: string;
+  isEnabled: boolean;
+  term: string;
+  description?: string;
+  questions: FeedbackQuestion[];
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export interface FeedbackAnswerItem {
+  questionId: string;
+  questionPrompt: string;
+  type: FeedbackAnswerType;
+  value: string | number | boolean;
+}
+
+export interface FeedbackSubmission {
+  id: string;
+  campusId: string;
+  studentId: string;
+  studentName: string;
+  admissionNumber?: string;
+  classId: string;
+  batchName: string;
+  teacherId: string;
+  teacherName: string;
+  facultyDepartment: string;
+  term: string;
+  answers: FeedbackAnswerItem[];
+  submittedAt: string;
+}
+
+export interface TeacherFeedbackReport {
+  id: string;
+  campusId: string;
+  teacherId: string;
+  teacherName: string;
+  facultyLabel?: string;
+  term: string;
+  summaryText: string;
+  suggestionsText: string;
+  mudirName: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface MyFeedbackStatusResponse {
+  isEnabled: boolean;
+  term: string;
+  description?: string;
+  questions: FeedbackQuestion[];
+  teachers: Array<{
+    id: string;
+    teacherId?: string;
+    fullName: string;
+    arabicTitle?: string;
+    photo?: string;
+    specialization?: string;
+    facultyDepartment: string;
+    submitted: boolean;
+  }>;
+  submittedTeacherIds: string[];
+  pendingTeachers: Array<{
+    id: string;
+    fullName: string;
+    facultyDepartment: string;
+  }>;
+  requiresSubmission: boolean;
+}
+
 

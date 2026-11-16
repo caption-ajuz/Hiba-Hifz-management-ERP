@@ -1,8 +1,9 @@
 import bcrypt from 'bcryptjs';
 import { ClassBatch } from '../models/ClassBatch';
 import { Teacher } from '../models/Teacher';
+import { Student } from '../models/Student';
 import { User } from '../models/User';
-import { isMongoReady, getRuntimeDb } from '../config/runtimeStore';
+import { isMongoReady, getRuntimeDb, saveRuntimeDb } from '../config/runtimeStore';
 
 /**
  * Resolves all class IDs effectively assigned to an Usthad/Mudeer user
@@ -74,8 +75,8 @@ export function normalizeDobString(rawDob?: string): string {
     return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
   }
 
-  // DD-MM-YYYY or DD/MM/YYYY
-  const dmyMatch = clean.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  // DD-MM-YYYY or DD/MM/YYYY (also handles spaces around hyphens)
+  const dmyMatch = clean.match(/^(\d{1,2})\s*[-/]\s*(\d{1,2})\s*[-/]\s*(\d{4})$/);
   if (dmyMatch) {
     const [, d, m, y] = dmyMatch;
     return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
@@ -85,13 +86,95 @@ export function normalizeDobString(rawDob?: string): string {
 }
 
 /**
- * Generates default student login password from Admission Number & Date of Birth.
- * Format: <AdmissionNumber>@<DateOfBirth> (e.g. 24831@2011-03-15)
+ * Formats a normalized YYYY-MM-DD DOB as DD-MM-YYYY for display and default student login.
  */
-export function buildDefaultStudentPassword(admissionNumber: string, dateOfBirth?: string): string {
-  const cleanAdm = admissionNumber.trim();
-  const cleanDob = normalizeDobString(dateOfBirth);
-  return `${cleanAdm}@${cleanDob}`;
+export function formatDobAsDmy(rawDob?: string): string {
+  const iso = normalizeDobString(rawDob);
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return iso;
+  return `${m[3]}-${m[2]}-${m[1]}`;
+}
+
+/**
+ * Generates all accepted default password variants for a student using Date of Birth & Admission Number
+ * (active only while the student is still on their default password).
+ */
+export function getStudentDobPasswordVariants(admissionNumber: string, rawDob?: string): string[] {
+  const adm = String(admissionNumber || '').trim();
+  const iso = normalizeDobString(rawDob);
+  const variants = new Set<string>();
+
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) {
+    const [, y, mo, d] = m;
+    const dmyDash = `${d}-${mo}-${y}`;
+    const dmySlash = `${d}/${mo}/${y}`;
+    const isoSlash = `${y}/${mo}/${d}`;
+    const dmyCompact = `${d}${mo}${y}`;
+    const ymdCompact = `${y}${mo}${d}`;
+
+    variants.add(dmyDash);
+    variants.add(iso);
+    variants.add(dmySlash);
+    variants.add(isoSlash);
+    variants.add(dmyCompact);
+    variants.add(ymdCompact);
+
+    if (adm) {
+      variants.add(`${adm}@${iso}`);
+      variants.add(`${adm}@${dmyDash}`);
+      variants.add(`${adm.toLowerCase()}@${iso}`);
+      variants.add(`${adm.toLowerCase()}@${dmyDash}`);
+    }
+  } else if (rawDob) {
+    const clean = rawDob.trim();
+    variants.add(clean);
+    if (adm) {
+      variants.add(`${adm}@${clean}`);
+    }
+  }
+
+  return Array.from(variants);
+}
+
+/**
+ * Generates default student login password from Date of Birth (DD-MM-YYYY, e.g. 14-02-2011).
+ */
+export function buildDefaultStudentPassword(_admissionNumber: string, dateOfBirth?: string): string {
+  return formatDobAsDmy(dateOfBirth);
+}
+
+/**
+ * Strips non-digits from a phone number for reliable comparison across +91/spaces/dashes.
+ */
+export function normalizePhoneDigits(rawPhone?: string): string {
+  return String(rawPhone || '').replace(/\D/g, '');
+}
+
+/**
+ * Checks whether two phone numbers match (full digits match or last 10 digits match).
+ */
+export function phonesMatch(a?: string, b?: string): boolean {
+  const digitsA = normalizePhoneDigits(a);
+  const digitsB = normalizePhoneDigits(b);
+  if (digitsA.length < 7 || digitsB.length < 7) return false;
+  if (digitsA === digitsB) return true;
+  if (digitsA.length >= 10 && digitsB.length >= 10) {
+    return digitsA.slice(-10) === digitsB.slice(-10);
+  }
+  return false;
+}
+
+/**
+ * Normalizes a person's full name for flexible case/punctuation/whitespace matching.
+ */
+export function normalizePersonName(rawName?: string): string {
+  return String(rawName || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[._-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /**
@@ -142,8 +225,8 @@ export function resolveCampusBatchFromValue<
 }
 
 /**
- * Ensures a STUDENT User login account exists for an enrolled or CSV-imported student.
- * Default password is generated from Admission Number + Date of Birth and flagged mustChangePassword = true.
+ * Ensures a STUDENT User login account exists for an enrolled, CSV-imported, or seeded student.
+ * Default password is generated from Date of Birth and flagged mustChangePassword = true.
  */
 export async function ensureStudentUserAccount(
   student: {
@@ -162,7 +245,7 @@ export async function ensureStudentUserAccount(
   const cleanAdm = student.admissionNumber.trim();
   const cleanUsername = cleanAdm.toLowerCase();
   const defaultPassword = buildDefaultStudentPassword(cleanAdm, student.dateOfBirth);
-  const safeEmail = `${cleanUsername.replace(/[^a-z0-9._-]/g, '')}.student@markazulhidaya.edu.in`;
+  const safeEmail = `${cleanUsername.replace(/[^a-z0-9._-]/g, '') || student.id}.student@markazulhidaya.edu.in`;
   const userId = `usr_student_${student.id}`;
   const titleLabel = batchName ? `Student · ${batchName}` : `Student · ${student.classId}`;
 
@@ -187,7 +270,7 @@ export async function ensureStudentUserAccount(
       email: safeEmail,
       passwordHash: bcrypt.hashSync(defaultPassword, 10),
       phone: student.parentPhone || '',
-      avatar: student.photo || '/assets/images/avatar_student_male_1794118079992.jpg',
+      avatar: student.photo || '',
       title: titleLabel,
       referenceId: cleanAdm,
       campusId: student.campusId || 'campus-main',
@@ -223,7 +306,7 @@ export async function ensureStudentUserAccount(
     email: safeEmail,
     password: defaultPassword,
     phone: student.parentPhone || '',
-    avatar: student.photo || '/assets/images/avatar_student_male_1794118079992.jpg',
+    avatar: student.photo || '',
     title: titleLabel,
     referenceId: cleanAdm,
     campusId: student.campusId || 'campus-main',
@@ -235,3 +318,153 @@ export async function ensureStudentUserAccount(
 
   return { created: true, username: cleanUsername, defaultPassword };
 }
+
+/**
+ * Finds or creates a PARENT User account linked to a student (and any siblings sharing parentPhone).
+ * Default credentials for parents: Student Full Name + Registered Mobile Number.
+ */
+export async function ensureParentUserAccountForStudent(student: {
+  id: string;
+  admissionNumber: string;
+  fullName: string;
+  parentName?: string;
+  parentPhone?: string;
+  parentEmail?: string;
+  campusId?: string;
+}): Promise<{ created: boolean; userId: string } | null> {
+  const digits = normalizePhoneDigits(student.parentPhone);
+  if (digits.length < 7) return null;
+  const phoneKey = digits.length >= 10 ? digits.slice(-10) : digits;
+
+  if (!isMongoReady()) {
+    const db = getRuntimeDb();
+    const siblingIds = db.students
+      .filter((s) => phonesMatch(s.parentPhone, student.parentPhone))
+      .map((s) => s.id);
+    if (!siblingIds.includes(student.id)) siblingIds.push(student.id);
+
+    const existing = db.users.find(
+      (u) =>
+        u.role === 'PARENT' &&
+        (phonesMatch(u.phone, student.parentPhone) ||
+          (Array.isArray(u.linkedStudentIds) && u.linkedStudentIds.includes(student.id)))
+    );
+
+    if (existing) {
+      const merged = Array.from(new Set([...(existing.linkedStudentIds || []), ...siblingIds]));
+      existing.linkedStudentIds = merged;
+      if (!existing.phone && student.parentPhone) existing.phone = student.parentPhone;
+      return { created: false, userId: existing.id };
+    }
+
+    const baseUsername = `parent.${phoneKey}`;
+    const usernameCollision = db.users.some((u) => u.username.toLowerCase() === baseUsername);
+    const username = usernameCollision ? `parent.${student.admissionNumber.toLowerCase()}` : baseUsername;
+    const emailCandidate = `parent.${phoneKey}@markazulhidaya.edu.in`;
+    const emailCollision = db.users.some((u) => u.email.toLowerCase() === emailCandidate);
+    const email = emailCollision
+      ? `parent.${student.id.toLowerCase().replace(/[^a-z0-9]/g, '')}@markazulhidaya.edu.in`
+      : emailCandidate;
+
+    const userId = `usr_parent_${phoneKey}_${Date.now().toString().slice(-4)}`;
+    db.users.push({
+      id: userId,
+      role: 'PARENT',
+      fullName: (student.parentName || '').trim() || `Parent of ${student.fullName}`,
+      arabicName: `${student.parentName || 'ولي الأمر'}`,
+      username,
+      email,
+      passwordHash: bcrypt.hashSync(phoneKey, 10),
+      phone: student.parentPhone || phoneKey,
+      avatar: '/assets/images/avatar_parent_male_1794118098652.jpg',
+      title: `Parent / Guardian of ${student.fullName}`,
+      referenceId: `PAR-${phoneKey}`,
+      campusId: student.campusId || 'campus-main',
+      linkedStudentIds: siblingIds,
+      mustChangePassword: true,
+      isActive: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    return { created: true, userId };
+  }
+
+  const allStudents = await Student.find().select('id parentPhone').lean();
+  const siblingIds = allStudents
+    .filter((s: any) => phonesMatch(s.parentPhone, student.parentPhone))
+    .map((s: any) => s.id);
+  if (!siblingIds.includes(student.id)) siblingIds.push(student.id);
+
+  const parentUsers = await User.find({ role: 'PARENT' });
+  const existing = parentUsers.find(
+    (u) =>
+      phonesMatch(u.phone, student.parentPhone) ||
+      (Array.isArray(u.linkedStudentIds) && u.linkedStudentIds.includes(student.id))
+  );
+
+  if (existing) {
+    const merged = Array.from(new Set([...(existing.linkedStudentIds || []), ...siblingIds]));
+    if (merged.length !== (existing.linkedStudentIds || []).length) {
+      existing.linkedStudentIds = merged;
+      await existing.save();
+    }
+    return { created: false, userId: existing.id };
+  }
+
+  const baseUsername = `parent.${phoneKey}`;
+  const usernameTaken = await User.findOne({ username: baseUsername }).select('id').lean();
+  const username = usernameTaken ? `parent.${student.admissionNumber.toLowerCase()}` : baseUsername;
+  const emailCandidate = `parent.${phoneKey}@markazulhidaya.edu.in`;
+  const emailTaken = await User.findOne({ email: emailCandidate }).select('id').lean();
+  const email = emailTaken
+    ? `parent.${student.id.toLowerCase().replace(/[^a-z0-9]/g, '')}@markazulhidaya.edu.in`
+    : emailCandidate;
+
+  const userId = `usr_parent_${phoneKey}_${Date.now().toString().slice(-4)}`;
+  await User.create({
+    id: userId,
+    role: 'PARENT',
+    fullName: (student.parentName || '').trim() || `Parent of ${student.fullName}`,
+    arabicName: `${student.parentName || 'ولي الأمر'}`,
+    username,
+    email,
+    password: phoneKey,
+    phone: student.parentPhone || phoneKey,
+    avatar: '/assets/images/avatar_parent_male_1794118098652.jpg',
+    title: `Parent / Guardian of ${student.fullName}`,
+    referenceId: `PAR-${phoneKey}`,
+    campusId: student.campusId || 'campus-main',
+    linkedStudentIds: siblingIds,
+    mustChangePassword: true,
+    isActive: true,
+  });
+
+  return { created: true, userId };
+}
+
+/**
+ * Reconciles missing STUDENT (and PARENT) login accounts for all existing students.
+ */
+export async function reconcileStudentAndParentAccounts(): Promise<void> {
+  if (!isMongoReady()) {
+    const db = getRuntimeDb();
+    let changed = false;
+    for (const std of db.students) {
+      const cls = db.classes.find((c) => c.id === std.classId);
+      const res = await ensureStudentUserAccount(std, cls?.name);
+      if (res.created) changed = true;
+    }
+    if (changed) saveRuntimeDb(db);
+    return;
+  }
+
+  const [students, classes] = await Promise.all([
+    Student.find().lean(),
+    ClassBatch.find().select('id name').lean(),
+  ]);
+  const classMap = new Map(classes.map((c: any) => [c.id, c.name]));
+  for (const std of students) {
+    await ensureStudentUserAccount(std as any, classMap.get((std as any).classId));
+  }
+}
+

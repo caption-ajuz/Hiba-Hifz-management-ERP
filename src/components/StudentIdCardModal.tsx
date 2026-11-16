@@ -1,7 +1,8 @@
 import React from 'react';
 import { INSTITUTION_INFO } from '../data/mockData';
 import { Student } from '../types';
-import { X, Printer, Download, Check, ShieldCheck } from 'lucide-react';
+import { DEFAULT_STUDENT_AVATAR, getStudentPhotoSrc } from '../utils/avatarUtils';
+import { X, Printer } from 'lucide-react';
 
 interface StudentIdCardModalProps {
   isOpen: boolean;
@@ -76,10 +77,13 @@ export const StudentIdCardModal: React.FC<StudentIdCardModalProps> = ({
             <div className="flex flex-col items-center -mt-8 relative z-10">
               <div className="w-22 h-22 rounded-full border-4 border-white shadow-md overflow-hidden bg-slate-100">
                 <img
-                  src={student.photo}
+                  src={getStudentPhotoSrc(student.photo)}
                   alt={student.fullName}
                   className="w-full h-full object-cover"
                   referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    e.currentTarget.src = DEFAULT_STUDENT_AVATAR;
+                  }}
                 />
               </div>
 

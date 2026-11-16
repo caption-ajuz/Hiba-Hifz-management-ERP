@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   ArrowLeft,
   SlidersHorizontal,
@@ -10,10 +10,7 @@ import {
   Ban,
   Download,
   AlertTriangle,
-  ChevronDown,
-  Sparkles,
   Calculator,
-  Calendar,
   FileText,
 } from 'lucide-react';
 import {
@@ -22,34 +19,136 @@ import {
   TERMLY_ATTENDANCE_SEMESTER_5,
   TERMLY_ATTENDANCE_SEMESTER_6,
   HourlyAttendanceCell,
-  StudentCourseAttendance,
 } from '../../data/studentPortalData';
+import { AttendanceItemRecord, Student } from '../../types';
 
 interface StudentAttendanceViewProps {
+  attendanceItems?: AttendanceItemRecord[];
+  student?: Student;
   onBack: () => void;
   onOpenDutyLeave: () => void;
   onSelectPeriod: (data: any) => void;
 }
 
+const MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
+function getMonthNameFromIso(isoDate: string): string {
+  const parts = isoDate.split('-');
+  const monthIdx = Number(parts[1]) - 1;
+  return MONTH_NAMES[monthIdx] || 'November';
+}
+
+function formatDayLabel(isoDate: string): string {
+  const parsed = new Date(`${isoDate}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return isoDate;
+  const dayNum = String(parsed.getDate()).padStart(2, '0');
+  const weekday = parsed.toLocaleDateString('en-US', { weekday: 'short' });
+  return `${dayNum}-${weekday}`;
+}
+
 export const StudentAttendanceView: React.FC<StudentAttendanceViewProps> = ({
+  attendanceItems = [],
+  student,
   onBack,
   onOpenDutyLeave,
   onSelectPeriod,
 }) => {
+  const currentMonthName = MONTH_NAMES[new Date().getMonth()] || 'November';
   const [activeTab, setActiveTab] = useState<'Course' | 'Hourly' | 'Termly'>('Course');
-  const [selectedSemester, setSelectedSemester] = useState<number>(5);
-  const [selectedMonth, setSelectedMonth] = useState<string>('August');
+  const [selectedSemester, setSelectedSemester] = useState<number>(6);
+  const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthName);
   const [searchCourse, setSearchCourse] = useState<string>('');
   const [filterShortageOnly, setFilterShortageOnly] = useState<boolean>(false);
   const [targetPercentage, setTargetPercentage] = useState<number>(75);
   const [showCalculator, setShowCalculator] = useState<boolean>(false);
   const [showFilterDrawer, setShowFilterDrawer] = useState<boolean>(false);
+  const [statementNotice, setStatementNotice] = useState<string | null>(null);
 
-  // Month list for Hourly tab
-  const months = ['July', 'August', 'September', 'October', 'November'];
+  // Month list for Hourly tab (includes base months + any month from live attendance items)
+  const months = useMemo(() => {
+    const base = ['July', 'August', 'September', 'October', 'November'];
+    const dynamic = attendanceItems.map((i) => getMonthNameFromIso(i.date));
+    const unique = Array.from(new Set([...base, currentMonthName, ...dynamic]));
+    return unique.sort((a, b) => MONTH_NAMES.indexOf(a) - MONTH_NAMES.indexOf(b));
+  }, [attendanceItems, currentMonthName]);
+
+  // Lookup live attendance item details by `${date}__h${hour}`
+  const liveItemMap = useMemo(() => {
+    const map = new Map<string, AttendanceItemRecord>();
+    attendanceItems.forEach((item) => {
+      map.set(`${item.date}__h${item.sessionHour}`, item);
+    });
+    return map;
+  }, [attendanceItems]);
+
+  // Build merged hourly matrix for selectedMonth
+  const mergedMonthRows = useMemo(() => {
+    const baseRows: HourlyAttendanceCell[] = (HOURLY_ATTENDANCE_DATA[selectedMonth] || []).map(
+      (r) => ({ ...r })
+    );
+    const byDate = new Map<string, HourlyAttendanceCell>();
+    baseRows.forEach((row) => byDate.set(row.date, row));
+
+    attendanceItems.forEach((item) => {
+      if (getMonthNameFromIso(item.date) !== selectedMonth) return;
+      let row = byDate.get(item.date);
+      if (!row) {
+        row = {
+          dayStr: formatDayLabel(item.date),
+          date: item.date,
+          h1: 'UNMARKED',
+          h2: 'UNMARKED',
+          h3: 'UNMARKED',
+          h4: 'UNMARKED',
+          h5: 'UNMARKED',
+        };
+        byDate.set(item.date, row);
+      }
+      const mappedStatus = item.status === 'NOT_MARKED' ? 'UNMARKED' : item.status;
+      const hr = Number(item.sessionHour);
+      if (hr === 1) row.h1 = mappedStatus;
+      else if (hr === 2) row.h2 = mappedStatus;
+      else if (hr === 3) row.h3 = mappedStatus;
+      else if (hr === 4) row.h4 = mappedStatus;
+      else if (hr === 5) row.h5 = mappedStatus;
+    });
+
+    return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
+  }, [selectedMonth, attendanceItems]);
+
+  // Reflect live attendance in HIFZ501 course summary when marked records exist
+  const coursesWithLiveData = useMemo(() => {
+    const marked = attendanceItems.filter((i) => i.status !== 'NOT_MARKED');
+    if (marked.length === 0) return STUDENT_COURSES_DATA;
+    const present = marked.filter((i) => i.status === 'PRESENT' || i.status === 'LATE').length;
+    const livePct = Math.round((present / marked.length) * 1000) / 10;
+
+    return STUDENT_COURSES_DATA.map((course) => {
+      if (course.code !== 'HIFZ501') return course;
+      return {
+        ...course,
+        totalHours: marked.length,
+        attendedHours: present,
+        percentage: livePct,
+      };
+    });
+  }, [attendanceItems]);
 
   // Filter courses
-  const filteredCourses = STUDENT_COURSES_DATA.filter((c) => {
+  const filteredCourses = coursesWithLiveData.filter((c) => {
     const matchesSearch =
       c.code.toLowerCase().includes(searchCourse.toLowerCase()) ||
       c.name.toLowerCase().includes(searchCourse.toLowerCase()) ||
@@ -139,46 +238,46 @@ export const StudentAttendanceView: React.FC<StudentAttendanceViewProps> = ({
     );
   };
 
-  // Status icon mapper for Hourly Matrix (matches the reference screenshot exactly)
+  // Status icon mapper for Hourly Matrix
   const renderHourlyStatusIcon = (status: string, cell: HourlyAttendanceCell, hourNum: number) => {
+    const liveItem = liveItemMap.get(`${cell.date}__h${hourNum}`);
+
     const clickHandler = () => {
       onSelectPeriod({
         hour: hourNum,
         time:
           hourNum === 1
-            ? '09:30 AM - 10:30 AM'
+            ? '07:00 AM - 08:30 AM'
             : hourNum === 2
-            ? '10:30 AM - 11:30 AM'
+            ? '09:00 AM - 10:30 AM'
             : hourNum === 3
-            ? '11:45 AM - 12:45 PM'
+            ? '11:00 AM - 12:30 PM'
             : hourNum === 4
-            ? '01:30 PM - 02:30 PM'
-            : '02:30 PM - 03:30 PM',
-        subjectCode:
-          hourNum === 1
-            ? 'CHE5CJ302'
-            : hourNum === 2
-            ? 'CHE5CJ301'
-            : hourNum === 3
-            ? 'CHE5FS 112'
-            : hourNum === 4
-            ? 'CHE5CJ303'
-            : 'HIFZ501',
+            ? '02:00 PM - 04:00 PM'
+            : '04:30 PM - 05:30 PM',
+        subjectCode: liveItem ? 'HIFZ501' : hourNum === 5 ? 'HIFZ501' : `CHE5CJ30${hourNum}`,
         subjectName:
-          hourNum === 1
-            ? 'Inorganic Chemistry - III'
+          liveItem?.sessionName ||
+          (hourNum === 1
+            ? 'Fajr Sabq · Tahfeezul Quran'
             : hourNum === 2
-            ? 'Theoretical Chemistry II'
+            ? 'Morning Murajath Revision'
             : hourNum === 3
-            ? 'Chemistry in everyday life'
+            ? 'Tajweed & Pronunciation'
             : hourNum === 4
-            ? 'Major - Organic Chemistry-III'
-            : 'Tahfeezul Quran & Tajweed',
-        faculty: hourNum === 3 ? 'FAUSIA K H' : hourNum === 5 ? 'Usthad Mohammed Ajash T' : 'Dr. Sreenivasan K.P',
-        room: hourNum === 4 ? 'Chemistry Lab 2' : hourNum === 5 ? 'Tahfeez Chamber' : 'Room 204',
-        status: status,
-        topic: 'Regular curriculum lecture with practical problems and syllabus review.',
-        date: cell.dayStr,
+            ? 'Afternoon Manzil Circle'
+            : 'Tahfeezul Quran & Testing'),
+        faculty:
+          liveItem?.markedByName ||
+          (hourNum === 3 ? 'FAUSIA K H' : hourNum === 5 ? 'Usthad Mohammed Ajash T' : 'Dr. Sreenivasan K.P'),
+        room: 'Tahfeez Chamber',
+        status: liveItem?.status || status,
+        topic:
+          liveItem
+            ? [liveItem.topic, liveItem.description].filter(Boolean).join(' — ') ||
+              'Tahfeez daily session recorded by faculty mentor.'
+            : 'Regular curriculum session and syllabus review.',
+        date: cell.date || cell.dayStr,
       });
     };
 
@@ -498,21 +597,27 @@ export const StudentAttendanceView: React.FC<StudentAttendanceViewProps> = ({
 
             {/* Rows */}
             <div className="divide-y divide-slate-100">
-              {(HOURLY_ATTENDANCE_DATA[selectedMonth] || []).map((row) => (
-                <div
-                  key={row.dayStr}
-                  className="grid grid-cols-6 items-center p-3 text-center hover:bg-slate-50/60 transition-colors"
-                >
-                  <div className="text-left pl-2 text-xs font-semibold text-slate-800 font-mono">
-                    {row.dayStr}
+              {mergedMonthRows.length > 0 ? (
+                mergedMonthRows.map((row) => (
+                  <div
+                    key={row.date || row.dayStr}
+                    className="grid grid-cols-6 items-center p-3 text-center hover:bg-slate-50/60 transition-colors"
+                  >
+                    <div className="text-left pl-2 text-xs font-semibold text-slate-800 font-mono">
+                      {row.dayStr}
+                    </div>
+                    <div className="flex justify-center">{renderHourlyStatusIcon(row.h1, row, 1)}</div>
+                    <div className="flex justify-center">{renderHourlyStatusIcon(row.h2, row, 2)}</div>
+                    <div className="flex justify-center">{renderHourlyStatusIcon(row.h3, row, 3)}</div>
+                    <div className="flex justify-center">{renderHourlyStatusIcon(row.h4, row, 4)}</div>
+                    <div className="flex justify-center">{renderHourlyStatusIcon(row.h5, row, 5)}</div>
                   </div>
-                  <div className="flex justify-center">{renderHourlyStatusIcon(row.h1, row, 1)}</div>
-                  <div className="flex justify-center">{renderHourlyStatusIcon(row.h2, row, 2)}</div>
-                  <div className="flex justify-center">{renderHourlyStatusIcon(row.h3, row, 3)}</div>
-                  <div className="flex justify-center">{renderHourlyStatusIcon(row.h4, row, 4)}</div>
-                  <div className="flex justify-center">{renderHourlyStatusIcon(row.h5, row, 5)}</div>
+                ))
+              ) : (
+                <div className="p-6 text-center text-xs text-slate-400">
+                  No attendance sessions recorded for {selectedMonth} yet.
                 </div>
-              ))}
+              )}
             </div>
           </div>
 
@@ -577,26 +682,38 @@ export const StudentAttendanceView: React.FC<StudentAttendanceViewProps> = ({
           </div>
 
           {/* Main Term Gauge Card (Matches Screenshot 6) */}
-          <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm flex flex-col items-center justify-center space-y-4">
-            {/* Big Circular Percentage Gauge */}
-            {renderDonutChart(selectedSemester === 5 ? 58.3 : 91.3, 150, 14)}
+          {(() => {
+            const markedLive = attendanceItems.filter((i) => i.status !== 'NOT_MARKED');
+            const presentLive = markedLive.filter(
+              (i) => i.status === 'PRESENT' || i.status === 'LATE'
+            ).length;
+            const sem6Pct =
+              markedLive.length > 0
+                ? Math.round((presentLive / markedLive.length) * 1000) / 10
+                : student?.attendanceRate ?? 91.3;
+            const gaugePct = selectedSemester === 5 ? 58.3 : sem6Pct;
 
-            {/* Term Period */}
-            <div className="text-center space-y-1">
-              <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                Term
-              </div>
-              <div className="text-sm sm:text-base font-extrabold text-slate-900 font-mono tracking-tight">
-                {selectedSemester === 5 ? '01-06-2026 To 30-10-2026' : '01-11-2026 To 31-03-2027'}
-              </div>
-            </div>
+            return (
+              <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm flex flex-col items-center justify-center space-y-4">
+                {renderDonutChart(gaugePct, 150, 14)}
 
-            {selectedSemester === 5 && (
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-900 text-center font-medium max-w-sm">
-                Shortage Alert: Attendance is currently 58.3%. Minimum requirement for University Exam hall ticket eligibility is 75.0%.
+                <div className="text-center space-y-1">
+                  <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    Term
+                  </div>
+                  <div className="text-sm sm:text-base font-extrabold text-slate-900 font-mono tracking-tight">
+                    {selectedSemester === 5 ? '01-06-2026 To 30-10-2026' : '01-11-2026 To 31-03-2027'}
+                  </div>
+                </div>
+
+                {selectedSemester === 5 && (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-900 text-center font-medium max-w-sm">
+                    Shortage Alert: Attendance is currently 58.3%. Minimum requirement for University Exam hall ticket eligibility is 75.0%.
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            );
+          })()}
 
           {/* Monthly Breakdown Table (Matches Screenshot 6) */}
           <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
@@ -606,7 +723,7 @@ export const StudentAttendanceView: React.FC<StudentAttendanceViewProps> = ({
                   <th className="py-3 px-3.5 text-center">SI</th>
                   <th className="py-3 px-3">Year</th>
                   <th className="py-3 px-3">Month</th>
-                  <th className="py-3 px-3 text-right">Attendan...</th>
+                  <th className="py-3 px-3 text-right">Attended</th>
                   <th className="py-3 px-3 text-right">Total</th>
                   <th className="py-3 px-3.5 text-right">%</th>
                 </tr>
@@ -651,6 +768,22 @@ export const StudentAttendanceView: React.FC<StudentAttendanceViewProps> = ({
             </table>
           </div>
 
+          {statementNotice && (
+            <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{statementNotice}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setStatementNotice(null)}
+                className="text-emerald-700 hover:text-emerald-950 cursor-pointer"
+              >
+                ×
+              </button>
+            </div>
+          )}
+
           {/* Statement download action */}
           <div className="flex items-center justify-between p-4 bg-white rounded-2xl border border-slate-200">
             <div>
@@ -658,7 +791,11 @@ export const StudentAttendanceView: React.FC<StudentAttendanceViewProps> = ({
               <div className="text-[10px] text-slate-500">Certified by Principal & Academic Dean</div>
             </div>
             <button
-              onClick={() => alert('Attendance statement downloaded successfully for Semester ' + selectedSemester)}
+              type="button"
+              onClick={() => {
+                setStatementNotice(`Attendance statement prepared for Semester ${selectedSemester}.`);
+                setTimeout(() => setStatementNotice(null), 4000);
+              }}
               className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
             >
               <Download className="w-3.5 h-3.5" />

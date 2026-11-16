@@ -1,33 +1,22 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { INSTITUTION_INFO } from '../data/mockData';
-import { Student, HifzRecord, UserProfile } from '../types';
+import { Student, HifzRecord, UserProfile, TimetableSlot } from '../types';
 import { JUZ_NAMES } from '../data/quranData';
+import { DEFAULT_STUDENT_AVATAR, getStudentPhotoSrc } from '../utils/avatarUtils';
 import {
-  HeartHandshake,
   CalendarCheck,
   BookOpen,
   Phone,
   Clock,
   IdCard,
   CheckCircle2,
-  AlertTriangle,
-  ChevronRight,
-  Sparkles,
   MapPin,
-  Calendar,
   X,
   User,
-  ArrowRight,
   FileText,
   Send,
-  Upload,
-  MessageSquare,
-  ShieldCheck,
-  SlidersHorizontal,
-  Download,
-  Bell,
   Home,
-  Award,
+  KeyRound,
 } from 'lucide-react';
 import {
   STUDENT_COURSES_DATA,
@@ -39,27 +28,53 @@ interface ParentDashboardProps {
   currentUser: UserProfile;
   students: Student[];
   records: HifzRecord[];
+  timetableSlots?: TimetableSlot[];
   onOpenIdCard: (student: Student) => void;
+  onOpenTimetable?: () => void;
+  onOpenChangePassword?: () => void;
   onNavigate: (tab: string) => void;
 }
+
+const TIMETABLE_DAYS = [
+  { id: 'D1', short: 'Sat' },
+  { id: 'D2', short: 'Sun' },
+  { id: 'D3', short: 'Mon' },
+  { id: 'D4', short: 'Tue' },
+  { id: 'D5', short: 'Wed' },
+];
 
 export const ParentDashboard: React.FC<ParentDashboardProps> = ({
   currentUser,
   students,
   records,
+  timetableSlots = [],
   onOpenIdCard,
+  onOpenTimetable,
+  onOpenChangePassword,
   onNavigate,
 }) => {
   // Navigation tabs within parent portal: 'home' | 'attendance' | 'hifz' | 'ward'
   const [activeParentTab, setActiveParentTab] = useState<'home' | 'attendance' | 'hifz' | 'ward'>('home');
 
   // Linked children
-  const linkedIds = currentUser.linkedStudentIds || ['std_05', 'std_08'];
+  const linkedIds =
+    currentUser.linkedStudentIds && currentUser.linkedStudentIds.length > 0
+      ? currentUser.linkedStudentIds
+      : currentUser.id === 'usr_parent_01'
+      ? ['std_05', 'std_08']
+      : [];
   const myChildren = students.filter((s) => linkedIds.includes(s.id));
-  const [selectedChildId, setSelectedChildId] = useState<string>(myChildren[0]?.id || 'std_05');
+  const [selectedChildId, setSelectedChildId] = useState<string>(myChildren[0]?.id || '');
 
-  const selectedChild = myChildren.find((c) => c.id === selectedChildId) || myChildren[0] || students[4];
-  const childRecords = records.filter((r) => r.studentId === selectedChild.id);
+  useEffect(() => {
+    if (myChildren.length > 0 && !myChildren.some((c) => c.id === selectedChildId)) {
+      setSelectedChildId(myChildren[0].id);
+    }
+  }, [myChildren, selectedChildId]);
+
+  const selectedChild =
+    myChildren.find((c) => c.id === selectedChildId) || myChildren[0] || students[0];
+  const childRecords = selectedChild ? records.filter((r) => r.studentId === selectedChild.id) : [];
   const latestSabq = childRecords.find((r) => r.recordType === 'SABQ');
   const latestMurajath = childRecords.find((r) => r.recordType === 'MURAJATH');
   const latestManzil = childRecords.find((r) => r.recordType === 'MANZIL');
@@ -78,8 +93,18 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
   const [leaveSubmitted, setLeaveSubmitted] = useState(false);
 
   // Calculations
-  const completedJuzCount = selectedChild.completedJuzList.length;
+  const completedJuzCount = selectedChild?.completedJuzList?.length || 0;
   const progressPercent = Math.round((completedJuzCount / 30) * 100);
+  const [selectedTimetableDay, setSelectedTimetableDay] = useState<string>('D1');
+
+  const childDayTimetable = useMemo(() => {
+    const daySlots = timetableSlots.filter((s) => s.day === selectedTimetableDay);
+    const matching = daySlots.filter(
+      (s) => !s.classId || !selectedChild?.classId || s.classId === selectedChild.classId
+    );
+    const list = matching.length > 0 ? matching : daySlots;
+    return [...list].sort((a, b) => Number(a.slotNumber || 0) - Number(b.slotNumber || 0));
+  }, [timetableSlots, selectedTimetableDay, selectedChild?.classId]);
 
   // Circular Donut Renderer matching Student Portal
   const renderDonutChart = (percentage: number, size = 96, strokeWidth = 8) => {
@@ -137,9 +162,43 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
     }, 2200);
   };
 
+  if (!selectedChild) {
+    return (
+      <div className="min-h-screen bg-slate-50/70 flex items-center justify-center p-6 text-center">
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 max-w-sm shadow-xs space-y-2">
+          <div className="text-sm font-bold text-slate-900">Loading Student Profile...</div>
+          <p className="text-xs text-slate-500">
+            Retrieving linked ward details for {currentUser.fullName}.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50/70 text-slate-900 pb-28">
       <div className="max-w-xl mx-auto px-3 sm:px-4 py-3 sm:py-5 space-y-4 sm:space-y-5">
+        {currentUser.mustChangePassword && onOpenChangePassword && (
+          <div className="bg-amber-50 border border-amber-300 rounded-2xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-2xs">
+            <div className="flex items-start gap-2.5 text-xs text-amber-950">
+              <KeyRound className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+              <div>
+                <div className="font-bold">First Login Password Reminder</div>
+                <div className="text-[11px] text-amber-800">
+                  Signed in with registered mobile number. Update your password anytime to secure your parent account.
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onOpenChangePassword}
+              className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shrink-0 cursor-pointer self-start sm:self-center"
+            >
+              Change Password
+            </button>
+          </div>
+        )}
+
         {/* 1. TOP PARENT HEADER */}
         <div className="flex items-center justify-between pt-1">
           <div className="flex items-center gap-3">
@@ -192,10 +251,13 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                   }`}
                 >
                   <img
-                    src={child.photo}
+                    src={getStudentPhotoSrc(child.photo)}
                     alt={child.fullName}
-                    className="w-5 h-5 rounded-full object-cover"
+                    className="w-5 h-5 rounded-full object-cover bg-slate-100"
                     referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      e.currentTarget.src = DEFAULT_STUDENT_AVATAR;
+                    }}
                   />
                   <span className="text-xs truncate">{child.fullName.split(' ')[0]}</span>
                   <span
@@ -271,10 +333,13 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
             <div className="bg-white rounded-3xl border border-slate-200/90 p-4 sm:p-5 shadow-sm flex items-center justify-between gap-3">
               <div className="flex items-center gap-3.5">
                 <img
-                  src={selectedChild.photo}
+                  src={getStudentPhotoSrc(selectedChild.photo)}
                   alt={selectedChild.fullName}
-                  className="w-14 h-14 rounded-full object-cover border-2 border-emerald-500 shadow-2xs"
+                  className="w-14 h-14 rounded-full object-cover border-2 border-emerald-500 shadow-2xs bg-slate-100"
                   referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    e.currentTarget.src = DEFAULT_STUDENT_AVATAR;
+                  }}
                 />
                 <div>
                   <div className="flex items-center gap-2">
@@ -350,6 +415,76 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
               </div>
             </div>
 
+            {/* Child's Live Timetable Schedule */}
+            <div className="bg-white rounded-3xl border border-slate-200/90 p-5 shadow-sm space-y-3.5">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 tracking-tight">
+                    Ward's Daily Timetable
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Live class sessions & assigned faculty mentors
+                  </p>
+                </div>
+                {onOpenTimetable && (
+                  <button
+                    type="button"
+                    onClick={onOpenTimetable}
+                    className="text-xs font-bold text-emerald-700 hover:underline cursor-pointer shrink-0"
+                  >
+                    Full Schedule →
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+                {TIMETABLE_DAYS.map((d) => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => setSelectedTimetableDay(d.id)}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                      selectedTimetableDay === d.id
+                        ? 'bg-emerald-900 text-white'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    {d.short}
+                  </button>
+                ))}
+              </div>
+
+              {childDayTimetable.length === 0 ? (
+                <div className="p-4 rounded-2xl bg-slate-50 border border-dashed border-slate-200 text-xs text-slate-500 text-center">
+                  No sessions scheduled for this day yet.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {childDayTimetable.map((slot) => (
+                    <div
+                      key={slot.id}
+                      className="p-3 rounded-2xl bg-slate-50/80 border border-slate-200 flex items-center justify-between gap-3 text-xs"
+                    >
+                      <div className="min-w-0">
+                        <div className="font-mono text-[11px] font-bold text-emerald-800 tabular-nums">
+                          Period {slot.slotNumber} · {slot.time}
+                        </div>
+                        <div className="font-bold text-slate-900 truncate mt-0.5">{slot.title}</div>
+                        <div className="text-[11px] text-slate-500 truncate mt-0.5">
+                          {slot.mentor} · {slot.room}
+                        </div>
+                      </div>
+                      {slot.tag && (
+                        <span className="text-[10px] font-semibold text-slate-500 shrink-0">
+                          {slot.tag}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {/* Child's Memorization Progress (Quran Hifz Journey) */}
             <div className="bg-white rounded-3xl border border-slate-200/90 p-5 shadow-sm space-y-3.5">
               <div className="flex items-center justify-between">
@@ -358,7 +493,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
                     Holy Quran Memorization Status
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Mentored by Usthad Mohammed Ajash T.
+                    Mentored by Usthad Mohammed Ajash
                   </p>
                 </div>
                 <button
@@ -952,7 +1087,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({
             <div className="space-y-3 text-xs">
               <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-2xl flex items-center justify-between">
                 <div>
-                  <div className="font-bold text-slate-900">Usthad Mohammed Ajash T.</div>
+                  <div className="font-bold text-slate-900">Usthad Mohammed Ajash</div>
                   <div className="text-[10px] text-slate-500">Senior Tahfeez Faculty & Mentor</div>
                 </div>
                 <a

@@ -27,6 +27,7 @@ import evaluationRoutes from './server/routes/evaluationRoutes';
 import campusRoutes from './server/routes/campusRoutes';
 import eventRoutes from './server/routes/eventRoutes';
 import timetableRoutes from './server/routes/timetableRoutes';
+import feedbackRoutes from './server/routes/feedbackRoutes';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -60,6 +61,7 @@ async function startServer() {
   app.use('/api/evaluations', evaluationRoutes);
   app.use('/api/events', eventRoutes);
   app.use('/api/timetable', timetableRoutes);
+  app.use('/api/feedback', feedbackRoutes);
 
   // Connect to MongoDB Atlas and Seed initial data in background/concurrently
   connectDB()

@@ -1,19 +1,25 @@
-import React, { useState, useRef } from 'react';
-import { INSTITUTION_INFO } from '../data/mockData';
-import { Student, HifzRecord, UserProfile, TeacherEvaluation, ClassBatch } from '../types';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import {
+  Student,
+  HifzRecord,
+  UserProfile,
+  TeacherEvaluation,
+  ClassBatch,
+  CollegeEvent,
+  Announcement,
+  TimetableSlot,
+  AttendanceItemRecord,
+} from '../types';
 import { JUZ_NAMES } from '../data/quranData';
 import { api } from '../services/api';
+import { subscribeToRealtimeEvents } from '../services/socket';
 import {
   Home,
   LayoutGrid,
   User,
   ArrowLeft,
-  BookOpen,
-  CalendarCheck,
   CheckCircle2,
-  Sparkles,
-  Camera,
-  Loader2,
+  AlertCircle,
   KeyRound,
 } from 'lucide-react';
 
@@ -34,6 +40,13 @@ interface StudentDashboardProps {
   classes?: ClassBatch[];
   records: HifzRecord[];
   evaluations: TeacherEvaluation[];
+  events?: CollegeEvent[];
+  announcements?: Announcement[];
+  timetableSlots?: TimetableSlot[];
+  feedbackEnabled?: boolean;
+  feedbackPendingCount?: number;
+  allowStudentProfileEdit?: boolean;
+  initialPortalTab?: 'home' | 'menu' | 'profile' | 'attendance' | 'hifz';
   onOpenIdCard: () => void;
   onOpenTimetable: () => void;
   onOpenFeedback: () => void;
@@ -47,7 +60,13 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   student,
   classes = [],
   records,
-  evaluations,
+  events = [],
+  announcements = [],
+  timetableSlots = [],
+  feedbackEnabled = false,
+  feedbackPendingCount = 0,
+  allowStudentProfileEdit = false,
+  initialPortalTab = 'home',
   onOpenIdCard,
   onOpenTimetable,
   onOpenFeedback,
@@ -56,8 +75,101 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   onStudentUpdated,
 }) => {
   // Navigation within the student portal
-  const [activePortalTab, setActivePortalTab] = useState<'home' | 'menu' | 'profile' | 'attendance' | 'hifz'>('home');
+  const [activePortalTab, setActivePortalTab] = useState<'home' | 'menu' | 'profile' | 'attendance' | 'hifz'>(initialPortalTab);
   const [pinnedFavorites, setPinnedFavorites] = useState<string[]>(DEFAULT_PINNED_FAVORITES);
+  const skipNextTabSyncRef = useRef(false);
+
+  useEffect(() => {
+    if (skipNextTabSyncRef.current) {
+      skipNextTabSyncRef.current = false;
+      return;
+    }
+    setActivePortalTab(initialPortalTab);
+  }, [initialPortalTab]);
+
+  const switchPortalTab = (tab: 'home' | 'menu' | 'profile' | 'attendance' | 'hifz') => {
+    if (initialPortalTab !== 'home' && tab !== initialPortalTab) {
+      skipNextTabSyncRef.current = true;
+      onNavigate('dashboard');
+    }
+    setActivePortalTab(tab);
+  };
+
+  // Live attendance items & profile edit permission for this student
+  const [attendanceItems, setAttendanceItems] = useState<AttendanceItemRecord[]>([]);
+  const [effectiveAllowEdit, setEffectiveAllowEdit] = useState<boolean>(allowStudentProfileEdit);
+
+  useEffect(() => {
+    setEffectiveAllowEdit(allowStudentProfileEdit);
+  }, [allowStudentProfileEdit]);
+
+  const fetchStudentAttendance = useCallback(async () => {
+    if (!student?.id) return;
+    try {
+      const items = await api.getStudentAttendance(student.id);
+      if (Array.isArray(items)) {
+        setAttendanceItems(items);
+      }
+    } catch (err) {
+      console.warn('[StudentDashboard] Could not load attendance history:', err);
+    }
+  }, [student?.id]);
+
+  useEffect(() => {
+    void fetchStudentAttendance();
+    api
+      .getStudentProfileEditPermission()
+      .then((res) => {
+        if (res && typeof res.allowStudentProfileEdit === 'boolean') {
+          setEffectiveAllowEdit(res.allowStudentProfileEdit);
+        }
+      })
+      .catch(() => {});
+
+    const unsubscribe = subscribeToRealtimeEvents({
+      onAttendanceUpdated: (data: any) => {
+        if (!data) return;
+        const statusForStudent = data.records?.[student.id];
+        if (statusForStudent !== undefined) {
+          setAttendanceItems((prev) => {
+            const idx = prev.findIndex(
+              (item) =>
+                item.date === data.date && Number(item.sessionHour) === Number(data.sessionHour)
+            );
+            const nextItem: AttendanceItemRecord = {
+              studentId: student.id,
+              classId: data.classId || student.classId,
+              date: data.date,
+              sessionHour: Number(data.sessionHour),
+              status: statusForStudent,
+              sessionName: data.sessionName || `Hour ${data.sessionHour}`,
+              topic: data.topic || '',
+              description: data.description || '',
+              markedByName: data.updatedBy || '',
+            };
+            if (idx >= 0) {
+              const copy = [...prev];
+              copy[idx] = { ...copy[idx], ...nextItem };
+              return copy;
+            }
+            return [nextItem, ...prev];
+          });
+          void fetchStudentAttendance();
+        } else if (data.classId === student.classId) {
+          void fetchStudentAttendance();
+        }
+      },
+      onStudentProfilePermissionUpdated: (data) => {
+        if (!data.campusId || !student.campusId || data.campusId === student.campusId) {
+          setEffectiveAllowEdit(Boolean(data.allowStudentProfileEdit));
+        }
+      },
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [student?.id, student?.classId, student?.campusId, fetchStudentAttendance]);
 
   // Modals
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -65,22 +177,28 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const [isDutyLeaveOpen, setIsDutyLeaveOpen] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState<any | null>(null);
 
-  // Profile photo upload
+  // Profile photo upload & removal
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [photoMessage, setPhotoMessage] = useState<string | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (!effectiveAllowEdit) {
+      setPhotoError('Profile editing is currently locked by the Campus Mudeer.');
+      return;
+    }
 
     if (file.size > 5 * 1024 * 1024) {
-      alert('Photo must be smaller than 5MB.');
+      setPhotoError('Photo must be smaller than 5MB.');
       return;
     }
 
     setIsUploadingPhoto(true);
     setPhotoMessage(null);
+    setPhotoError(null);
     try {
       const uploadRes = await api.uploadMedia(file, 'students', student.photoPublicId);
       const updated = await api.updateStudent(student.id, {
@@ -94,10 +212,44 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
       setTimeout(() => setPhotoMessage(null), 4000);
     } catch (err: any) {
       console.error('Photo upload failed:', err);
-      alert('Failed to upload photo. Please try another image.');
+      setPhotoError(err?.message || 'Failed to upload photo. Please try another image.');
     } finally {
       setIsUploadingPhoto(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  };
+
+  const handleRemovePhoto = async () => {
+    if (!effectiveAllowEdit) {
+      setPhotoError('Profile editing is currently locked by the Campus Mudeer.');
+      return;
+    }
+    setPhotoMessage(null);
+    setPhotoError(null);
+    try {
+      const updated = await api.updateStudent(student.id, {
+        photo: '',
+        photoPublicId: '',
+      });
+      if (onStudentUpdated) {
+        onStudentUpdated(updated);
+      }
+      setPhotoMessage('Profile photo removed.');
+      setTimeout(() => setPhotoMessage(null), 3500);
+    } catch (err: any) {
+      setPhotoError(err?.message || 'Could not remove photo right now.');
+    }
+  };
+
+  const handleUpdateProfile = async (updates: Partial<Student>): Promise<Student> => {
+    if (!effectiveAllowEdit) {
+      throw new Error('Profile editing is currently disabled by the Campus Mudeer.');
+    }
+    const updated = await api.updateStudent(student.id, updates);
+    if (onStudentUpdated) {
+      onStudentUpdated(updated);
+    }
+    return updated;
   };
 
   // Hifz stats
@@ -119,12 +271,19 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         onChange={handlePhotoUpload}
       />
 
-      {/* Photo update toast notification */}
+      {/* Photo update toast notifications */}
       {photoMessage && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 p-3 bg-emerald-50 border border-emerald-300 text-emerald-800 text-xs font-bold rounded-xl flex items-center gap-2 shadow-lg animate-fade-in">
           <CheckCircle2 className="w-4 h-4 text-emerald-600" />
           <span>{photoMessage}</span>
-          <button onClick={() => setPhotoMessage(null)} className="ml-2 text-emerald-700 hover:text-emerald-950">×</button>
+          <button onClick={() => setPhotoMessage(null)} className="ml-2 text-emerald-700 hover:text-emerald-950 cursor-pointer">×</button>
+        </div>
+      )}
+      {photoError && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 p-3 bg-rose-50 border border-rose-300 text-rose-800 text-xs font-bold rounded-xl flex items-center gap-2 shadow-lg animate-fade-in">
+          <AlertCircle className="w-4 h-4 text-rose-600" />
+          <span>{photoError}</span>
+          <button onClick={() => setPhotoError(null)} className="ml-2 text-rose-700 hover:text-rose-950 cursor-pointer">×</button>
         </div>
       )}
 
@@ -157,6 +316,12 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         <StudentPortalHome
           student={student}
           currentUser={currentUser}
+          attendanceItems={attendanceItems}
+          events={events}
+          announcements={announcements}
+          timetableSlots={timetableSlots}
+          feedbackEnabled={feedbackEnabled}
+          feedbackPendingCount={feedbackPendingCount}
           onOpenAttendance={() => setActivePortalTab('attendance')}
           onOpenProfile={() => setActivePortalTab('profile')}
           onOpenNotifications={() => setIsNotificationsOpen(true)}
@@ -167,13 +332,16 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           onOpenDutyLeave={() => setIsDutyLeaveOpen(true)}
           onOpenHifz={() => setActivePortalTab('hifz')}
           onOpenFeedback={onOpenFeedback}
+          onNavigateEvents={() => onNavigate('events')}
           pinnedFavoriteIds={pinnedFavorites}
         />
       )}
 
       {activePortalTab === 'attendance' && (
         <StudentAttendanceView
-          onBack={() => setActivePortalTab('home')}
+          attendanceItems={attendanceItems}
+          student={student}
+          onBack={() => switchPortalTab('home')}
           onOpenDutyLeave={() => setIsDutyLeaveOpen(true)}
           onSelectPeriod={(slot) => setSelectedPeriod(slot)}
         />
@@ -184,10 +352,13 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           onNavigateTab={onNavigate}
           onOpenAttendance={() => setActivePortalTab('attendance')}
           onOpenIdCard={onOpenIdCard}
-          onOpenTimetable={onOpenTimetable}
           onOpenFeedback={onOpenFeedback}
           onOpenDutyLeave={() => setIsDutyLeaveOpen(true)}
           onOpenHifz={() => setActivePortalTab('hifz')}
+          feedbackEnabled={feedbackEnabled}
+          feedbackPendingCount={feedbackPendingCount}
+          currentJuz={student.currentJuz}
+          attendanceRate={student.attendanceRate}
         />
       )}
 
@@ -196,12 +367,15 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           student={student}
           currentUser={currentUser}
           classes={classes}
+          allowStudentProfileEdit={effectiveAllowEdit}
+          onUpdateProfile={effectiveAllowEdit ? handleUpdateProfile : undefined}
           onOpenIdCard={onOpenIdCard}
           onLogout={() => {
             localStorage.removeItem('hyba_auth_user_id');
             window.location.reload();
           }}
-          onChangePhoto={() => fileInputRef.current?.click()}
+          onChangePhoto={effectiveAllowEdit ? () => fileInputRef.current?.click() : undefined}
+          onRemovePhoto={effectiveAllowEdit ? handleRemovePhoto : undefined}
           onOpenChangePassword={onOpenChangePassword}
         />
       )}
@@ -222,7 +396,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   Tahfeezul Quran Tracker
                 </h1>
                 <p className="text-xs text-slate-500">
-                  Mentor: Usthad Mohammed Ajash T. · Juz {student.currentJuz} Active Sabq
+                  Mentor: Usthad Mohammed Ajash · Juz {student.currentJuz} Active Sabq
                 </p>
               </div>
             </div>
@@ -345,7 +519,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         <div className="max-w-md mx-auto flex items-center justify-around">
           {/* 1. Home Tab */}
           <button
-            onClick={() => setActivePortalTab('home')}
+            onClick={() => switchPortalTab('home')}
             className="flex flex-col items-center justify-center cursor-pointer group"
           >
             <div
@@ -368,7 +542,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
           {/* 2. Menu Tab */}
           <button
-            onClick={() => setActivePortalTab('menu')}
+            onClick={() => switchPortalTab('menu')}
             className="flex flex-col items-center justify-center cursor-pointer group"
           >
             <div
@@ -391,7 +565,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
           {/* 3. Profile Tab */}
           <button
-            onClick={() => setActivePortalTab('profile')}
+            onClick={() => switchPortalTab('profile')}
             className="flex flex-col items-center justify-center cursor-pointer group"
           >
             <div
@@ -435,11 +609,15 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         onClose={() => setIsFavoritesOpen(false)}
         pinnedIds={pinnedFavorites}
         onSavePinned={(newIds) => setPinnedFavorites(newIds)}
+        feedbackEnabled={feedbackEnabled}
       />
 
       <StudentNotificationsModal
         isOpen={isNotificationsOpen}
         onClose={() => setIsNotificationsOpen(false)}
+        events={events}
+        announcements={announcements}
+        onViewEvents={() => onNavigate('events')}
       />
     </div>
   );

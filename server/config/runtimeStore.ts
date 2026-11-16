@@ -30,6 +30,7 @@ export const DEFAULT_CAMPUSES = [
     mudeerUsername: 'mudir',
     mudeerEmail: 'mudir@markazulhidaya.edu.in',
     mudeerPhone: '+91 94471 20001',
+    allowStudentProfileEdit: false,
   },
   {
     id: 'campus-city',
@@ -48,6 +49,7 @@ export const DEFAULT_CAMPUSES = [
     mudeerUsername: 'mudir.city',
     mudeerEmail: 'city.mudir@markazulhidaya.edu.in',
     mudeerPhone: '+91 94475 77219',
+    allowStudentProfileEdit: false,
   },
 ];
 
@@ -201,7 +203,188 @@ export const DEFAULT_TIMETABLE_SLOTS = [
     classId: 'batch-a',
     campusId: 'campus-main',
   },
+  {
+    id: 'slot_d2_1',
+    day: 'D2',
+    slotNumber: 1,
+    time: '07:00 - 08:30',
+    title: 'Sabq (السبق) · New Lesson Memorization',
+    batch: 'Hifz Batch A (Hifz Ul Uloom)',
+    room: 'Tahfeez Hall 101',
+    mentor: 'Usthad Mohammed Ajash',
+    color: 'bg-emerald-50 border-emerald-200 text-emerald-950',
+    tag: 'Sabq Focus',
+    classId: 'batch-a',
+    campusId: 'campus-main',
+  },
+  {
+    id: 'slot_d2_2',
+    day: 'D2',
+    slotNumber: 2,
+    time: '09:00 - 10:30',
+    title: 'Tahfeez Batch B · Murajath & Makharij Drill',
+    batch: 'Tahfeez Batch B (Al-Furqan)',
+    room: 'Tahfeez Hall 102',
+    mentor: 'Usthad Mohammed Ajash',
+    color: 'bg-teal-50 border-teal-200 text-teal-950',
+    tag: 'Revision',
+    classId: 'batch-b',
+    campusId: 'campus-main',
+  },
+  {
+    id: 'slot_d2_3',
+    day: 'D2',
+    slotNumber: 3,
+    time: '14:00 - 16:00',
+    title: 'Manzil (المنزل) · Cumulative Juz Revision',
+    batch: 'Hifz Batch A (Hifz Ul Uloom)',
+    room: 'Tahfeez Hall 101',
+    mentor: 'Usthad Mohammed Ajash',
+    color: 'bg-amber-50 border-amber-200 text-amber-950',
+    tag: 'Manzil',
+    classId: 'batch-a',
+    campusId: 'campus-main',
+  },
+  {
+    id: 'slot_d3_1',
+    day: 'D3',
+    slotNumber: 1,
+    time: '07:00 - 08:30',
+    title: 'Sabq (السبق) · New Lesson Hearing',
+    batch: 'Hifz Batch A (Hifz Ul Uloom)',
+    room: 'Tahfeez Hall 101',
+    mentor: 'Usthad Mohammed Ajash',
+    color: 'bg-emerald-50 border-emerald-200 text-emerald-950',
+    tag: 'Sabq Focus',
+    classId: 'batch-a',
+    campusId: 'campus-main',
+  },
+  {
+    id: 'slot_d3_2',
+    day: 'D3',
+    slotNumber: 2,
+    time: '11:00 - 12:30',
+    title: 'Qira’at & Shatibiyyah Sanad Seminar',
+    batch: 'Sanad Intensive Batch (Al-Itqan)',
+    room: 'Sanad Library Chamber',
+    mentor: 'Usthad Dr. Sreenivasan K.P.',
+    color: 'bg-sky-50 border-sky-200 text-sky-950',
+    tag: 'Tajweed',
+    classId: 'batch-c',
+    campusId: 'campus-main',
+  },
+  {
+    id: 'slot_d4_1',
+    day: 'D4',
+    slotNumber: 1,
+    time: '07:00 - 08:30',
+    title: 'Sabq (السبق) & Peer Recitation Pairing',
+    batch: 'Hifz Batch A (Hifz Ul Uloom)',
+    room: 'Tahfeez Hall 101',
+    mentor: 'Usthad Mohammed Ajash',
+    color: 'bg-emerald-50 border-emerald-200 text-emerald-950',
+    tag: 'Sabq Focus',
+    classId: 'batch-a',
+    campusId: 'campus-main',
+  },
+  {
+    id: 'slot_d4_2',
+    day: 'D4',
+    slotNumber: 2,
+    time: '14:00 - 16:00',
+    title: 'Manzil (المنزل) · Weekly Target Audit',
+    batch: 'Tahfeez Batch B (Al-Furqan)',
+    room: 'Tahfeez Hall 102',
+    mentor: 'Usthad Hafiz Luqman Al-Bukhari',
+    color: 'bg-amber-50 border-amber-200 text-amber-950',
+    tag: 'Manzil',
+    classId: 'batch-b',
+    campusId: 'campus-main',
+  },
+  {
+    id: 'slot_d5_1',
+    day: 'D5',
+    slotNumber: 1,
+    time: '07:00 - 09:00',
+    title: 'Jumu’ah Cumulative Manzil & Tajweed Majlis',
+    batch: 'All Campus Hifz Batches',
+    room: 'Grand Mosque Hall',
+    mentor: 'Sheikh Dr. Abdul Wahab Al-Qasimi',
+    color: 'bg-emerald-50 border-emerald-200 text-emerald-950',
+    tag: 'Weekly Review',
+    classId: 'batch-a',
+    campusId: 'campus-main',
+  },
 ];
+
+export function buildDefaultFeedbackConfig(campusId = 'campus-main') {
+  return {
+    campusId,
+    isEnabled: true,
+    term: '2026-27 (Odd Semester)',
+    description:
+      'Mandatory confidential student evaluation of Usthad mentorship, Tajweed precision, and daily Hifz support.',
+    updatedAt: new Date().toISOString(),
+    updatedBy: 'Sheikh Dr. Abdul Wahab Al-Qasimi',
+    questions: [
+      {
+        id: 'fbq_1',
+        prompt: 'How effectively does the Usthad guide your daily Sabq & Murajath memorization?',
+        arabicPrompt: 'مدى جودة توجيه الأستاذ في السبق والمراجعة اليومية',
+        type: 'RATING_5' as const,
+        required: true,
+        options: [],
+        isActive: true,
+        order: 1,
+      },
+      {
+        id: 'fbq_2',
+        prompt: 'How clear and consistent is the Tajweed & Makharij correction during recitation?',
+        arabicPrompt: 'وضوح تصحيح التجويد ومخارج الحروف أثناء التلاوة',
+        type: 'RATING_5' as const,
+        required: true,
+        options: [],
+        isActive: true,
+        order: 2,
+      },
+      {
+        id: 'fbq_3',
+        prompt: 'Does the Usthad begin and conclude sessions punctually according to the timetable?',
+        arabicPrompt: 'الالتزام بأوقات الحلقات الدراسية وفق الجدول',
+        type: 'YES_NO' as const,
+        required: true,
+        options: ['Yes', 'No'],
+        isActive: true,
+        order: 3,
+      },
+      {
+        id: 'fbq_4',
+        prompt: 'Which aspect of classroom mentorship helps you most?',
+        arabicPrompt: 'أي جانب من الإرشاد الدراسي يفيدك أكثر؟',
+        type: 'MULTIPLE_CHOICE' as const,
+        required: true,
+        options: [
+          'Individual Hifz Attention',
+          'Tajweed & Makharij Drills',
+          'Weekly Manzil Revision Plan',
+          'Encouragement & Motivation',
+        ],
+        isActive: true,
+        order: 4,
+      },
+      {
+        id: 'fbq_5',
+        prompt: 'Share any specific suggestions or appreciation for your Usthad',
+        arabicPrompt: 'اقتراحات أو ملاحظات إضافية للأستاذ',
+        type: 'TEXT' as const,
+        required: false,
+        options: [],
+        isActive: true,
+        order: 5,
+      },
+    ],
+  };
+}
 
 export interface RuntimeUser {
   id: string;
@@ -252,6 +435,9 @@ export interface RuntimeDb {
   announcements: any[];
   events: any[];
   timetableSlots: any[];
+  feedbackConfigs: any[];
+  feedbackSubmissions: any[];
+  teacherFeedbackReports: any[];
   resetTokens: RuntimeResetToken[];
 }
 
@@ -314,6 +500,9 @@ function buildInitialDb(): RuntimeDb {
     announcements: JSON.parse(JSON.stringify(MOCK_ANNOUNCEMENTS)),
     events: JSON.parse(JSON.stringify(DEFAULT_EVENTS)),
     timetableSlots: JSON.parse(JSON.stringify(DEFAULT_TIMETABLE_SLOTS)),
+    feedbackConfigs: [buildDefaultFeedbackConfig('campus-main'), buildDefaultFeedbackConfig('campus-city')],
+    feedbackSubmissions: [],
+    teacherFeedbackReports: [],
     resetTokens: [],
   };
 }
@@ -377,6 +566,53 @@ function ensureAdminSeedIntegrity(db: RuntimeDb): boolean {
     changed = true;
   }
 
+  // Ensure every student in runtimeDb has a STUDENT User account
+  for (const std of db.students) {
+    const cleanAdm = String(std.admissionNumber || '').trim();
+    const cleanUsername = cleanAdm.toLowerCase();
+    if (!cleanAdm) continue;
+    const hasAccount = db.users.some(
+      (u) =>
+        u.studentId === std.id ||
+        u.username.toLowerCase() === cleanUsername ||
+        (u.referenceId && u.referenceId.toLowerCase() === cleanUsername)
+    );
+    if (!hasAccount) {
+      const iso = String(std.dateOfBirth || '2011-01-01').trim();
+      const isoMatch = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      const defaultPass = isoMatch ? `${isoMatch[3]}-${isoMatch[2]}-${isoMatch[1]}` : iso;
+      const cls = db.classes.find((c) => c.id === std.classId);
+      db.users.push({
+        id: `usr_student_${std.id}`,
+        role: 'STUDENT',
+        fullName: std.fullName,
+        arabicName: std.arabicName || std.fullName,
+        username: cleanUsername,
+        email: `${cleanUsername.replace(/[^a-z0-9._-]/g, '') || std.id}.student@markazulhidaya.edu.in`,
+        passwordHash: bcrypt.hashSync(defaultPass, 10),
+        phone: std.parentPhone || '',
+        avatar: std.photo || '',
+        title: cls?.name ? `Student · ${cls.name}` : `Student · ${std.classId}`,
+        referenceId: cleanAdm,
+        campusId: std.campusId || 'campus-main',
+        studentId: std.id,
+        assignedClassIds: [std.classId],
+        mustChangePassword: true,
+        isActive: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      changed = true;
+    }
+  }
+
+  for (const campus of db.campuses) {
+    if (typeof campus.allowStudentProfileEdit !== 'boolean') {
+      campus.allowStudentProfileEdit = false;
+      changed = true;
+    }
+  }
+
   return changed;
 }
 
@@ -400,6 +636,12 @@ export function getRuntimeDb(): RuntimeDb {
         announcements: Array.isArray(parsed.announcements) ? parsed.announcements : initial.announcements,
         events: Array.isArray(parsed.events) ? parsed.events : initial.events,
         timetableSlots: Array.isArray(parsed.timetableSlots) ? parsed.timetableSlots : initial.timetableSlots,
+        feedbackConfigs:
+          Array.isArray(parsed.feedbackConfigs) && parsed.feedbackConfigs.length > 0
+            ? parsed.feedbackConfigs
+            : initial.feedbackConfigs,
+        feedbackSubmissions: Array.isArray(parsed.feedbackSubmissions) ? parsed.feedbackSubmissions : [],
+        teacherFeedbackReports: Array.isArray(parsed.teacherFeedbackReports) ? parsed.teacherFeedbackReports : [],
         resetTokens: Array.isArray(parsed.resetTokens) ? parsed.resetTokens : [],
       };
       if (ensureAdminSeedIntegrity(memoryDb)) {

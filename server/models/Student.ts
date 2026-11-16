@@ -8,6 +8,11 @@ export interface IStudent extends Document {
   arabicName: string;
   photo: string;
   photoPublicId?: string;
+  email?: string;
+  phone?: string;
+  about?: string;
+  address?: string;
+  bloodGroup?: string;
   dateOfBirth: string;
   gender: 'Male' | 'Female';
   parentName: string;
@@ -35,6 +40,11 @@ const StudentSchema = new Schema<IStudent>(
     arabicName: { type: String, default: '' },
     photo: { type: String, default: '' },
     photoPublicId: { type: String },
+    email: { type: String, default: '', lowercase: true, trim: true },
+    phone: { type: String, default: '', trim: true },
+    about: { type: String, default: '', trim: true },
+    address: { type: String, default: '', trim: true },
+    bloodGroup: { type: String, default: '', trim: true },
     dateOfBirth: { type: String, default: '' },
     gender: { type: String, enum: ['Male', 'Female'], default: 'Male' },
     parentName: { type: String, default: '' },

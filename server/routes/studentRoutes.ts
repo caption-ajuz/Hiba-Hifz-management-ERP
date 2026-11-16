@@ -2,16 +2,19 @@ import { Router, Response } from 'express';
 import { Student } from '../models/Student';
 import { User } from '../models/User';
 import { ClassBatch } from '../models/ClassBatch';
+import { Campus } from '../models/Campus';
 import { deleteFromCloudinary } from '../config/cloudinary';
-import { emitStudentUpdated } from '../socket';
+import { emitStudentUpdated, emitStudentProfilePermissionUpdated } from '../socket';
 import { authenticate, AuthRequest, authorize, logAuditEvent } from '../middleware/auth';
-import { isMongoReady, getRuntimeDb, saveRuntimeDb } from '../config/runtimeStore';
+import { isMongoReady, getRuntimeDb, saveRuntimeDb, DEFAULT_CAMPUSES } from '../config/runtimeStore';
+import bcrypt from 'bcryptjs';
 import {
   resolveEffectiveAssignedClassIds,
   resolveCampusBatchFromValue,
   normalizeDobString,
   buildDefaultStudentPassword,
   ensureStudentUserAccount,
+  ensureParentUserAccountForStudent,
 } from '../utils/accessHelpers';
 import { z } from 'zod';
 
@@ -62,7 +65,7 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
     const user = req.user!;
     const { classId, campusId, search, status, page, limit } = req.query;
     const pageNum = Math.max(1, parseInt(page as string) || 1);
-    const limitNum = Math.min(200, Math.max(1, parseInt(limit as string) || 100));
+    const limitNum = Math.min(500, Math.max(1, parseInt(limit as string) || 200));
     const skip = (pageNum - 1) * limitNum;
 
     const effectiveClassIds =
@@ -210,6 +213,132 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
   }
 });
 
+const profileEditSettingSchema = z.object({
+  allowStudentProfileEdit: z.boolean(),
+});
+
+// GET /api/students/settings/profile-edit - Check whether student profile self-editing is enabled for campus
+router.get('/settings/profile-edit', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const user = req.user!;
+    let campusId = user.campusId;
+
+    if (!campusId && user.role === 'STUDENT' && user.studentId) {
+      const stu = isMongoReady()
+        ? await Student.findOne({ id: user.studentId }).select('campusId').lean()
+        : getRuntimeDb().students.find((s) => s.id === user.studentId);
+      campusId = stu?.campusId;
+    }
+    campusId = campusId || 'campus-main';
+
+    if (!isMongoReady()) {
+      const db = getRuntimeDb();
+      const campus = db.campuses.find((c) => c.id === campusId);
+      return res.json({
+        success: true,
+        data: {
+          campusId,
+          allowStudentProfileEdit: Boolean(campus?.allowStudentProfileEdit),
+        },
+      });
+    }
+
+    let campus = await Campus.findOne({ id: campusId }).lean();
+    if (!campus) {
+      const count = await Campus.countDocuments();
+      if (count === 0) {
+        await Campus.insertMany(DEFAULT_CAMPUSES);
+        campus = await Campus.findOne({ id: campusId }).lean();
+      }
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        campusId,
+        allowStudentProfileEdit: Boolean(campus?.allowStudentProfileEdit),
+      },
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: 'Failed to retrieve profile editing setting.' });
+  }
+});
+
+// PUT /api/students/settings/profile-edit - MUDEER toggles student profile editing permission for their campus
+router.put('/settings/profile-edit', authenticate, authorize('MUDEER'), async (req: AuthRequest, res: Response) => {
+  try {
+    const user = req.user!;
+    const parse = profileEditSettingSchema.safeParse(req.body);
+    if (!parse.success) {
+      return res.status(400).json({
+        success: false,
+        error: parse.error.issues[0]?.message || 'Invalid permission setting payload.',
+      });
+    }
+
+    const { allowStudentProfileEdit } = parse.data;
+    const campusId = user.campusId || 'campus-main';
+
+    if (!isMongoReady()) {
+      const db = getRuntimeDb();
+      const campus = db.campuses.find((c) => c.id === campusId);
+      if (!campus) {
+        return res.status(404).json({ success: false, error: 'Campus not found.' });
+      }
+      campus.allowStudentProfileEdit = allowStudentProfileEdit;
+      saveRuntimeDb(db);
+      emitStudentProfilePermissionUpdated({
+        campusId,
+        allowStudentProfileEdit,
+        updatedBy: user.fullName,
+      });
+      return res.json({
+        success: true,
+        data: { campusId, allowStudentProfileEdit },
+      });
+    }
+
+    let campus = await Campus.findOneAndUpdate(
+      { id: campusId },
+      { $set: { allowStudentProfileEdit } },
+      { new: true }
+    );
+    if (!campus) {
+      const count = await Campus.countDocuments();
+      if (count === 0) {
+        await Campus.insertMany(DEFAULT_CAMPUSES);
+        campus = await Campus.findOneAndUpdate(
+          { id: campusId },
+          { $set: { allowStudentProfileEdit } },
+          { new: true }
+        );
+      }
+    }
+
+    if (!campus) {
+      return res.status(404).json({ success: false, error: 'Campus not found.' });
+    }
+
+    await logAuditEvent('STUDENT_PROFILE_EDIT_PERMISSION', user, 'Campus', campusId, {
+      allowStudentProfileEdit,
+    });
+
+    emitStudentProfilePermissionUpdated({
+      campusId,
+      allowStudentProfileEdit,
+      updatedBy: user.fullName,
+    });
+
+    return res.json({
+      success: true,
+      data: { campusId, allowStudentProfileEdit: Boolean(campus.allowStudentProfileEdit) },
+    });
+  } catch (err: any) {
+    console.error('[Students] Failed to update profile edit permission:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update student profile permission.' });
+  }
+});
+
 // GET /api/students/:id - Retrieve single student with RBAC
 router.get('/:id', authenticate, async (req: AuthRequest, res: Response) => {
   try {
@@ -302,6 +431,7 @@ router.post('/', authenticate, authorize('MUDEER', 'USTHAD'), async (req: AuthRe
       };
       db.students.push(newStudent);
       const accountInfo = await ensureStudentUserAccount(newStudent, matchedClass?.name);
+      await ensureParentUserAccountForStudent(newStudent);
       saveRuntimeDb(db);
       emitStudentUpdated(newStudent);
       return res.status(201).json({
@@ -343,6 +473,7 @@ router.post('/', authenticate, authorize('MUDEER', 'USTHAD'), async (req: AuthRe
     });
 
     const accountInfo = await ensureStudentUserAccount(newStudent, matchedClass?.name);
+    await ensureParentUserAccountForStudent(newStudent);
 
     emitStudentUpdated(newStudent);
     await logAuditEvent('STUDENT_CREATE', user, 'Student', newStudent.id, {
@@ -392,10 +523,38 @@ router.put('/:id', authenticate, async (req: AuthRequest, res: Response) => {
         if (user.studentId !== id) {
           return res.status(403).json({ success: false, error: 'Access forbidden: You can only edit your own profile.' });
         }
-        const allowedKeys = ['photo', 'photoPublicId', 'phone'];
+        const studentCampus = db.campuses.find((c) => c.id === (existing.campusId || 'campus-main'));
+        if (!studentCampus?.allowStudentProfileEdit) {
+          return res.status(403).json({
+            success: false,
+            error: 'Profile editing is currently disabled by the Mudeer.',
+          });
+        }
+        const allowedKeys = ['photo', 'photoPublicId', 'about', 'email', 'phone', 'address', 'bloodGroup'];
         const filteredBody: any = {};
         for (const k of allowedKeys) {
-          if (req.body[k] !== undefined) filteredBody[k] = req.body[k];
+          if (req.body[k] !== undefined) {
+            filteredBody[k] = typeof req.body[k] === 'string' ? req.body[k].trim() : req.body[k];
+          }
+        }
+        if (filteredBody.email !== undefined && filteredBody.email !== '') {
+          const emailCheck = z.string().email().safeParse(filteredBody.email);
+          if (!emailCheck.success) {
+            return res.status(400).json({ success: false, error: 'Please provide a valid email address.' });
+          }
+          filteredBody.email = filteredBody.email.toLowerCase();
+          const linkedSelf = db.users.find(
+            (u) => u.studentId === id || (existing.admissionNumber && u.referenceId === existing.admissionNumber)
+          );
+          const duplicateEmailUser = db.users.find(
+            (u) => u.email?.toLowerCase() === filteredBody.email && u.id !== linkedSelf?.id
+          );
+          if (duplicateEmailUser) {
+            return res.status(409).json({
+              success: false,
+              error: 'This email address is already linked to another portal account.',
+            });
+          }
         }
         req.body = filteredBody;
       } else if (user.role === 'PARENT') {
@@ -415,21 +574,56 @@ router.put('/:id', authenticate, async (req: AuthRequest, res: Response) => {
         payload.campusId = user.campusId;
       }
 
+      // Normalize DOB & sync student/parent accounts when key credentials change
+      if (payload.dateOfBirth) {
+        payload.dateOfBirth = normalizeDobString(payload.dateOfBirth);
+      }
+
       // Automatically synchronize assignedTeacherId when batch/classId changes
+      let targetClassName: string | undefined;
       if (payload.classId) {
         const targetClass = resolveCampusBatchFromValue(existing.campusId, payload.classId, db.classes);
         if (targetClass) {
           payload.classId = targetClass.id;
           payload.assignedTeacherId = targetClass.usthadId;
-        }
-        const linkedUser = db.users.find((u) => u.studentId === id || u.referenceId === existing.admissionNumber);
-        if (linkedUser) {
-          linkedUser.assignedClassIds = [payload.classId];
-          if (targetClass?.name) linkedUser.title = `Student · ${targetClass.name}`;
+          targetClassName = targetClass.name;
         }
       }
 
-      db.students[idx] = { ...existing, ...payload };
+      const updatedStudent = { ...existing, ...payload };
+      db.students[idx] = updatedStudent;
+
+      const linkedUser = db.users.find(
+        (u) => u.studentId === id || (existing.admissionNumber && u.referenceId === existing.admissionNumber)
+      );
+      if (linkedUser) {
+        if (payload.classId) {
+          linkedUser.assignedClassIds = [payload.classId];
+          if (targetClassName) linkedUser.title = `Student · ${targetClassName}`;
+        }
+        if (payload.admissionNumber) {
+          linkedUser.username = String(payload.admissionNumber).trim().toLowerCase();
+          linkedUser.referenceId = String(payload.admissionNumber).trim();
+        }
+        if (payload.fullName) linkedUser.fullName = payload.fullName;
+        if (payload.arabicName) linkedUser.arabicName = payload.arabicName;
+        if (payload.email !== undefined && payload.email !== '') linkedUser.email = payload.email;
+        if (payload.phone !== undefined) linkedUser.phone = payload.phone;
+        else if (payload.parentPhone && !linkedUser.phone) linkedUser.phone = payload.parentPhone;
+        if (payload.photo !== undefined) linkedUser.avatar = payload.photo;
+        if (linkedUser.mustChangePassword && (payload.dateOfBirth || payload.admissionNumber)) {
+          linkedUser.passwordHash = bcrypt.hashSync(
+            buildDefaultStudentPassword(updatedStudent.admissionNumber, updatedStudent.dateOfBirth),
+            10
+          );
+        }
+      } else {
+        await ensureStudentUserAccount(updatedStudent, targetClassName);
+      }
+      if (user.role !== 'STUDENT') {
+        await ensureParentUserAccountForStudent(updatedStudent);
+      }
+
       saveRuntimeDb(db);
       emitStudentUpdated(db.students[idx]);
       return res.json({ success: true, data: db.students[idx] });
@@ -448,10 +642,39 @@ router.put('/:id', authenticate, async (req: AuthRequest, res: Response) => {
       if (user.studentId !== id) {
         return res.status(403).json({ success: false, error: 'Access forbidden: You can only edit your own profile.' });
       }
-      const allowedKeys = ['photo', 'photoPublicId', 'phone'];
+      const studentCampus = await Campus.findOne({ id: existing.campusId || 'campus-main' }).lean();
+      if (!studentCampus?.allowStudentProfileEdit) {
+        return res.status(403).json({
+          success: false,
+          error: 'Profile editing is currently disabled by the Mudeer.',
+        });
+      }
+      const allowedKeys = ['photo', 'photoPublicId', 'about', 'email', 'phone', 'address', 'bloodGroup'];
       const filteredBody: any = {};
       for (const k of allowedKeys) {
-        if (req.body[k] !== undefined) filteredBody[k] = req.body[k];
+        if (req.body[k] !== undefined) {
+          filteredBody[k] = typeof req.body[k] === 'string' ? req.body[k].trim() : req.body[k];
+        }
+      }
+      if (filteredBody.email !== undefined && filteredBody.email !== '') {
+        const emailCheck = z.string().email().safeParse(filteredBody.email);
+        if (!emailCheck.success) {
+          return res.status(400).json({ success: false, error: 'Please provide a valid email address.' });
+        }
+        filteredBody.email = filteredBody.email.toLowerCase();
+        const linkedSelf = await User.findOne({
+          $or: [{ studentId: id }, { referenceId: existing.admissionNumber }],
+        }).lean();
+        const duplicateEmailUser = await User.findOne({
+          email: filteredBody.email,
+          ...(linkedSelf ? { id: { $ne: linkedSelf.id } } : {}),
+        }).lean();
+        if (duplicateEmailUser) {
+          return res.status(409).json({
+            success: false,
+            error: 'This email address is already linked to another portal account.',
+          });
+        }
       }
       req.body = filteredBody;
     } else if (user.role === 'PARENT') {
@@ -475,22 +698,56 @@ router.put('/:id', authenticate, async (req: AuthRequest, res: Response) => {
       payload.campusId = user.campusId;
     }
 
+    if (payload.dateOfBirth) {
+      payload.dateOfBirth = normalizeDobString(payload.dateOfBirth);
+    }
+
+    let targetClassName: string | undefined;
     if (payload.classId) {
       const campusClasses = await ClassBatch.find({ campusId: existing.campusId }).lean();
       const targetClass = resolveCampusBatchFromValue(existing.campusId, payload.classId, campusClasses);
       if (targetClass) {
         payload.classId = targetClass.id;
         payload.assignedTeacherId = targetClass.usthadId;
-        await User.updateOne(
-          { $or: [{ studentId: id }, { referenceId: existing.admissionNumber }] },
-          { $set: { assignedClassIds: [targetClass.id], title: `Student · ${targetClass.name}` } }
-        );
+        targetClassName = targetClass.name;
       }
     }
 
     const updated = await Student.findOneAndUpdate({ id }, { $set: payload }, { new: true });
 
     if (updated) {
+      const linkedStudentUser = await User.findOne({
+        $or: [{ studentId: id }, { referenceId: existing.admissionNumber }],
+      });
+      if (linkedStudentUser) {
+        if (payload.classId) {
+          linkedStudentUser.assignedClassIds = [updated.classId];
+          if (targetClassName) linkedStudentUser.title = `Student · ${targetClassName}`;
+        }
+        if (payload.admissionNumber) {
+          linkedStudentUser.username = updated.admissionNumber.trim().toLowerCase();
+          linkedStudentUser.referenceId = updated.admissionNumber.trim();
+        }
+        if (payload.fullName) linkedStudentUser.fullName = updated.fullName;
+        if (payload.arabicName) linkedStudentUser.arabicName = updated.arabicName;
+        if (payload.email !== undefined && payload.email !== '') linkedStudentUser.email = payload.email;
+        if (payload.phone !== undefined) linkedStudentUser.phone = payload.phone;
+        else if (payload.parentPhone && !linkedStudentUser.phone) linkedStudentUser.phone = payload.parentPhone;
+        if (payload.photo !== undefined) linkedStudentUser.avatar = payload.photo;
+        if (linkedStudentUser.mustChangePassword && (payload.dateOfBirth || payload.admissionNumber)) {
+          linkedStudentUser.password = buildDefaultStudentPassword(
+            updated.admissionNumber,
+            updated.dateOfBirth
+          );
+        }
+        await linkedStudentUser.save();
+      } else {
+        await ensureStudentUserAccount(updated as any, targetClassName);
+      }
+      if (user.role !== 'STUDENT') {
+        await ensureParentUserAccountForStudent(updated as any);
+      }
+
       emitStudentUpdated(updated);
       await logAuditEvent('STUDENT_UPDATE', user, 'Student', id, payload);
     }
@@ -691,7 +948,7 @@ router.post('/import-csv', authenticate, authorize('MUDEER', 'USTHAD'), async (r
         admissionNumber,
         fullName,
         arabicName,
-        photo: '/assets/images/avatar_student_male_1794118079992.jpg',
+        photo: '',
         dateOfBirth: dob,
         gender,
         parentName: parentName || 'Parent / Guardian',
@@ -719,6 +976,7 @@ router.post('/import-csv', authenticate, authorize('MUDEER', 'USTHAD'), async (r
         await Student.insertMany(studentsToPersist);
         for (const s of successfulRows) {
           await ensureStudentUserAccount(s, s._batchLabel);
+          await ensureParentUserAccountForStudent(s);
         }
         await logAuditEvent('CSV_STUDENT_IMPORT', user, 'Student', undefined, {
           totalRows,
@@ -731,6 +989,7 @@ router.post('/import-csv', authenticate, authorize('MUDEER', 'USTHAD'), async (r
         db.students.push(...studentsToPersist);
         for (const s of successfulRows) {
           await ensureStudentUserAccount(s, s._batchLabel);
+          await ensureParentUserAccountForStudent(s);
         }
         saveRuntimeDb(db);
       }
@@ -744,7 +1003,7 @@ router.post('/import-csv', authenticate, authorize('MUDEER', 'USTHAD'), async (r
         duplicateCount: duplicateRows.length,
         failedCount: failedRows.length,
         isCommitted: Boolean(isCommit),
-        defaultPasswordRule: '<AdmissionNumber>@<YYYY-MM-DD>',
+        defaultPasswordRule: 'Date of Birth (DD-MM-YYYY)',
       },
       successfulRows: isCommit
         ? []

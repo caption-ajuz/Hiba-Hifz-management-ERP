@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Student, ClassBatch, Teacher, UserProfile, Campus } from '../types';
 import { api, getAuthToken } from '../services/api';
+import { DEFAULT_STUDENT_AVATAR, getStudentPhotoSrc } from '../utils/avatarUtils';
 import {
   FacultyMentorOption,
   formatDefaultStudentPassword,
@@ -37,6 +38,9 @@ import {
   Layers,
   ChevronDown,
   KeyRound,
+  Power,
+  ShieldCheck,
+  Lock,
 } from 'lucide-react';
 
 interface StudentManagementProps {
@@ -45,6 +49,8 @@ interface StudentManagementProps {
   teachers: Teacher[];
   currentUser: UserProfile;
   assignedCampus?: Campus;
+  allowStudentProfileEdit?: boolean;
+  onProfileEditPermissionChanged?: (enabled: boolean) => void;
   onOpenIdCard: (student: Student) => void;
   onAddStudent: (student: Student) => Promise<void> | void;
   onUpdateStudent?: (student: Student) => void;
@@ -59,6 +65,8 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
   teachers,
   currentUser,
   assignedCampus,
+  allowStudentProfileEdit,
+  onProfileEditPermissionChanged,
   onOpenIdCard,
   onAddStudent,
   onUpdateStudent,
@@ -67,6 +75,7 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
   onRefreshStudents,
 }) => {
   const isUsthad = currentUser.role === 'USTHAD';
+  const isMudeer = currentUser.role === 'MUDEER';
   const assignedClassIds = useMemo(
     () => getUsthadEffectiveClassIds(currentUser, classes),
     [currentUser, classes]
@@ -109,6 +118,58 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
   const [savingBatchStudentId, setSavingBatchStudentId] = useState<string | null>(null);
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
 
+  // Student Profile Self-Editing Permission (Mudeer Control)
+  const [studentProfileEditEnabled, setStudentProfileEditEnabled] = useState<boolean>(() =>
+    Boolean(allowStudentProfileEdit ?? assignedCampus?.allowStudentProfileEdit ?? false)
+  );
+  const [isTogglingProfileEdit, setIsTogglingProfileEdit] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (allowStudentProfileEdit !== undefined) {
+      setStudentProfileEditEnabled(allowStudentProfileEdit);
+    } else if (assignedCampus?.allowStudentProfileEdit !== undefined) {
+      setStudentProfileEditEnabled(Boolean(assignedCampus.allowStudentProfileEdit));
+    }
+  }, [allowStudentProfileEdit, assignedCampus?.allowStudentProfileEdit]);
+
+  useEffect(() => {
+    if (!isMudeer) return;
+    let active = true;
+    api
+      .getStudentProfileEditPermission()
+      .then((res) => {
+        if (active && res && typeof res.allowStudentProfileEdit === 'boolean') {
+          setStudentProfileEditEnabled(res.allowStudentProfileEdit);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [isMudeer, currentUser.campusId]);
+
+  const handleToggleStudentProfileEdit = async () => {
+    if (!isMudeer || isTogglingProfileEdit) return;
+    const nextState = !studentProfileEditEnabled;
+    setIsTogglingProfileEdit(true);
+    try {
+      const updated = await api.updateStudentProfileEditPermission(nextState);
+      const resolved = Boolean(updated?.allowStudentProfileEdit);
+      setStudentProfileEditEnabled(resolved);
+      onProfileEditPermissionChanged?.(resolved);
+      setStatusNotice(
+        resolved
+          ? 'Student profile editing enabled. Students can now edit their own profile details in the Student Portal.'
+          : 'Student profile editing disabled. Student profiles are now locked as read-only.'
+      );
+      setTimeout(() => setStatusNotice(null), 5000);
+    } catch (err: any) {
+      setStatusNotice(`Failed to update profile editing permission: ${err?.message || 'Error'}`);
+    } finally {
+      setIsTogglingProfileEdit(false);
+    }
+  };
+
   // Modals
   const [showAddModal, setShowAddModal] = useState(false);
   const [showCsvImportModal, setShowCsvImportModal] = useState(false);
@@ -123,7 +184,7 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
   const [parentName, setParentName] = useState('');
   const [parentPhone, setParentPhone] = useState('+91 ');
   const [classId, setClassId] = useState(availableClasses[0]?.id || 'batch-a');
-  const [photoUrl, setPhotoUrl] = useState('/assets/images/avatar_student_male_1794118079992.jpg');
+  const [photoUrl, setPhotoUrl] = useState('');
   const [photoPublicId, setPhotoPublicId] = useState<string | undefined>(undefined);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
@@ -142,7 +203,9 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
   const [editParentEmail, setEditParentEmail] = useState('');
   const [editAccountStatus, setEditAccountStatus] = useState<'Active' | 'On Leave' | 'Completed'>('Active');
   const [editCurrentJuz, setEditCurrentJuz] = useState(1);
-  const [editPhotoUrl, setEditPhotoUrl] = useState('/assets/images/avatar_student_male_1794118079992.jpg');
+  const [editPhotoUrl, setEditPhotoUrl] = useState('');
+  const [editPhotoPublicId, setEditPhotoPublicId] = useState<string | undefined>(undefined);
+  const [isUploadingEditPhoto, setIsUploadingEditPhoto] = useState(false);
   const [isUpdatingStudent, setIsUpdatingStudent] = useState(false);
 
   // Delete Student State
@@ -182,7 +245,8 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
     setEditParentEmail(std.parentEmail || '');
     setEditAccountStatus(std.accountStatus || 'Active');
     setEditCurrentJuz(std.currentJuz || 1);
-    setEditPhotoUrl(std.photo || '/assets/images/avatar_student_male_1794118079992.jpg');
+    setEditPhotoUrl(std.photo || '');
+    setEditPhotoPublicId(std.photoPublicId);
     setShowEditModal(true);
   };
 
@@ -205,14 +269,17 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
         accountStatus: editAccountStatus,
         currentJuz: Number(editCurrentJuz),
         photo: editPhotoUrl,
+        photoPublicId: editPhotoPublicId,
       };
 
       const updated = await api.updateStudent(editingStudent.id, updates);
       if (onUpdateStudent) onUpdateStudent(updated);
       if (onRefreshStudents) onRefreshStudents();
+      setStatusNotice(`Updated profile for ${updated.fullName}.`);
+      setTimeout(() => setStatusNotice(null), 4000);
       setShowEditModal(false);
     } catch (err: any) {
-      alert(`Failed to update student: ${err.message}`);
+      setStatusNotice(`Failed to update student: ${err.message}`);
     } finally {
       setIsUpdatingStudent(false);
     }
@@ -227,7 +294,8 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
       if (onRefreshStudents) onRefreshStudents();
       setStudentToDelete(null);
     } catch (err: any) {
-      alert(`Failed to delete student: ${err.message}`);
+      setStatusNotice(`Failed to delete student: ${err.message}`);
+      setStudentToDelete(null);
     } finally {
       setIsDeletingStudent(false);
     }
@@ -318,9 +386,8 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate size (max 5MB)
     if (file.size > 5 * 1024 * 1024) {
-      alert('Photo must be smaller than 5MB.');
+      setStatusNotice('Photo must be smaller than 5MB.');
       return;
     }
 
@@ -331,9 +398,31 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
       setPhotoPublicId(res.public_id);
     } catch (err: any) {
       console.error('Photo upload error:', err);
-      alert('Failed to upload picture. Please try another image format.');
+      setStatusNotice('Failed to upload picture. Please try another image format.');
     } finally {
       setIsUploadingPhoto(false);
+    }
+  };
+
+  const handleEditPhotoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      setStatusNotice('Photo must be smaller than 5MB.');
+      return;
+    }
+
+    setIsUploadingEditPhoto(true);
+    try {
+      const res = await api.uploadMedia(file, 'students', editPhotoPublicId);
+      setEditPhotoUrl(res.secure_url);
+      setEditPhotoPublicId(res.public_id);
+    } catch (err: any) {
+      console.error('Photo upload error:', err);
+      setStatusNotice('Failed to upload picture. Please try another image format.');
+    } finally {
+      setIsUploadingEditPhoto(false);
     }
   };
 
@@ -464,6 +553,8 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
     setFullName('');
     setArabicName('');
     setParentName('');
+    setPhotoUrl('');
+    setPhotoPublicId(undefined);
   };
 
   // CSV Import Helpers
@@ -480,7 +571,7 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
       const rows = parseCsvRows(text);
 
       if (rows.length === 0) {
-        alert('Invalid or empty CSV format. Please ensure headers match the required template.');
+        setStatusNotice('Invalid or empty CSV format. Please ensure headers match the required template.');
         setIsParsingCsv(false);
         return;
       }
@@ -488,7 +579,7 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
       const preview = await api.importStudentsCSV(rows, false);
       setCsvPreviewData({ ...preview, originalRows: rows });
     } catch (err: any) {
-      alert(`Error reading CSV: ${err.message}`);
+      setStatusNotice(`Error reading CSV: ${err.message}`);
     } finally {
       setIsParsingCsv(false);
     }
@@ -505,7 +596,7 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
         onRefreshStudents();
       }
     } catch (err: any) {
-      alert(`Import failed: ${err.message}`);
+      setStatusNotice(`Import failed: ${err.message}`);
     } finally {
       setIsCommittingCsv(false);
     }
@@ -514,12 +605,12 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
   const handleDownloadSampleCsv = () => {
     const templateContent = [
       'admission_number,full_name,arabic_name,date_of_birth,gender,parent_name,parent_phone,batch',
-      '24831,Bilal Mohammed,بلال محمد,2011-03-15,Male,Mohammed Ali,+91 94470 12001,A',
-      '24832,Yusuf Ahmed,يوسف أحمد,2011-07-22,Male,Ahmed Raza,+91 94470 12002,A',
-      '24833,Mustafa Kamal,مصطفى كمال,2010-11-05,Male,Kamal Hassan,+91 94470 12003,B',
+      '24831,Bilal Mohammed,بلال محمد القاسمي,2011-03-15,Male,Mohammed Ali,+91 94470 12001,A',
+      '24832,Yusuf Ahmed,يوسف أحمد المنصور,2011-07-22,Male,Ahmed Raza,+91 94470 12002,A',
+      '24833,Mustafa Kamal,مصطفى كمال الحسن,2010-11-05,Male,Kamal Hassan,+91 94470 12003,B',
     ].join('\n');
 
-    const blob = new Blob([templateContent], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob(['\uFEFF' + templateContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -554,7 +645,7 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
       a.click();
       document.body.removeChild(a);
     } catch (err: any) {
-      alert(`Export error: ${err.message}`);
+      setStatusNotice(`Export error: ${err.message}`);
     }
   };
 
@@ -644,6 +735,67 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Mudeer Control: Student Profile Self-Editing Permission Toggle */}
+      {isMudeer && (
+        <div className="bg-white rounded-2xl border border-slate-200/90 p-4 sm:p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div
+              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
+                studentProfileEditEnabled
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                  : 'bg-slate-100 text-slate-500 border-slate-200'
+              }`}
+            >
+              {studentProfileEditEnabled ? (
+                <ShieldCheck className="w-5 h-5" />
+              ) : (
+                <Lock className="w-5 h-5" />
+              )}
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-sm font-bold text-slate-900">
+                  Student Profile Editing Permission
+                </h2>
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider ${
+                    studentProfileEditEnabled
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  {studentProfileEditEnabled ? 'ON · Allowed' : 'OFF · Locked'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {studentProfileEditEnabled
+                  ? 'Students can currently update their own profile photo, about bio, email, phone number, and personal details.'
+                  : 'Students cannot edit their own profiles. Turn ON to allow student self-editing from the Student Portal.'}
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            disabled={isTogglingProfileEdit}
+            onClick={handleToggleStudentProfileEdit}
+            aria-pressed={studentProfileEditEnabled}
+            className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer shrink-0 ${
+              studentProfileEditEnabled
+                ? 'bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs'
+                : 'bg-slate-200 hover:bg-slate-300 text-slate-800'
+            }`}
+          >
+            {isTogglingProfileEdit ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Power className="w-4 h-4" />
+            )}
+            <span>{studentProfileEditEnabled ? 'Turn OFF' : 'Turn ON'}</span>
+          </button>
+        </div>
+      )}
 
       {/* Status / Auto-save / Enrollment Notice */}
       {statusNotice && (
@@ -768,12 +920,12 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
                                   #{std.rollNumber}
                                 </span>
                                 <img
-                                  src={std.photo || '/assets/images/avatar_student_male_1794118079992.jpg'}
+                                  src={getStudentPhotoSrc(std.photo)}
                                   alt={std.fullName}
-                                  className="w-9 h-9 rounded-full object-cover border border-slate-200"
+                                  className="w-9 h-9 rounded-full object-cover border border-slate-200 bg-slate-100"
                                   referrerPolicy="no-referrer"
                                   onError={(e) => {
-                                    e.currentTarget.src = '/assets/images/avatar_student_male_1794118079992.jpg';
+                                    e.currentTarget.src = DEFAULT_STUDENT_AVATAR;
                                   }}
                                 />
                                 <div>
@@ -926,7 +1078,7 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
                     Required columns: <span className="font-mono text-slate-700">admission_number, full_name, date_of_birth, gender, parent_name, parent_phone, batch</span>
                   </div>
                   <div className="text-[11px] text-emerald-800 mt-1">
-                    Batch column accepts <strong>A</strong> (= Batch A) or <strong>B</strong> (= Batch B). Default login password is set to <span className="font-mono">&lt;AdmissionNumber&gt;@&lt;YYYY-MM-DD&gt;</span>.
+                    Batch column accepts <strong>A</strong> (= Batch A) or <strong>B</strong> (= Batch B). Student default login uses Admission # + Date of Birth (<span className="font-mono">DD-MM-YYYY</span>).
                   </div>
                 </div>
                 <button
@@ -1123,12 +1275,15 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
             <form onSubmit={handleCreateStudent} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
               {/* Dual-mode Photo Upload & Preview */}
               <div className="flex items-center gap-4 p-3 bg-slate-50 rounded-xl border border-slate-200">
-                <div className="relative w-14 h-14 rounded-full overflow-hidden border-2 border-emerald-500 bg-slate-100 shrink-0">
+                <div className="relative w-14 h-14 rounded-full overflow-hidden border-2 border-slate-200 bg-slate-100 shrink-0">
                   <img
-                    src={photoUrl}
+                    src={getStudentPhotoSrc(photoUrl)}
                     alt="Preview"
                     className="w-full h-full object-cover"
                     referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      e.currentTarget.src = DEFAULT_STUDENT_AVATAR;
+                    }}
                   />
                   {isUploadingPhoto && (
                     <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
@@ -1138,18 +1293,32 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
                 </div>
                 <div className="flex-1">
                   <div className="text-xs font-bold text-slate-900">Student Profile Picture</div>
-                  <div className="text-[11px] text-slate-500">Dual-mode storage (Cloudinary CDN + Local Server)</div>
-                  <label className="mt-1.5 inline-flex items-center gap-1.5 px-3 py-1 bg-white border border-slate-200 hover:border-emerald-500 text-slate-700 hover:text-emerald-700 text-xs font-semibold rounded-lg cursor-pointer transition-colors shadow-2xs">
-                    <Camera className="w-3.5 h-3.5" />
-                    <span>{isUploadingPhoto ? 'Uploading...' : 'Upload Picture'}</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handlePhotoFileChange}
-                      className="hidden"
-                      disabled={isUploadingPhoto}
-                    />
-                  </label>
+                  <div className="text-[11px] text-slate-500">Optional · Standard profile icon is shown until a photo is uploaded.</div>
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <label className="inline-flex items-center gap-1.5 px-3 py-1 bg-white border border-slate-200 hover:border-emerald-500 text-slate-700 hover:text-emerald-700 text-xs font-semibold rounded-lg cursor-pointer transition-colors shadow-2xs">
+                      <Camera className="w-3.5 h-3.5" />
+                      <span>{isUploadingPhoto ? 'Uploading...' : photoUrl ? 'Change Photo' : 'Upload Picture'}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handlePhotoFileChange}
+                        className="hidden"
+                        disabled={isUploadingPhoto}
+                      />
+                    </label>
+                    {photoUrl && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPhotoUrl('');
+                          setPhotoPublicId(undefined);
+                        }}
+                        className="px-2.5 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -1337,6 +1506,55 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
             </div>
 
             <form onSubmit={handleUpdateStudent} className="p-6 space-y-3.5 text-xs overflow-y-auto">
+              {/* Student Profile Photo Upload / Edit */}
+              <div className="flex items-center gap-4 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <div className="relative w-14 h-14 rounded-full overflow-hidden border-2 border-slate-200 bg-slate-100 shrink-0">
+                  <img
+                    src={getStudentPhotoSrc(editPhotoUrl)}
+                    alt={editFullName || 'Student'}
+                    className="w-full h-full object-cover"
+                    referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      e.currentTarget.src = DEFAULT_STUDENT_AVATAR;
+                    }}
+                  />
+                  {isUploadingEditPhoto && (
+                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                      <Loader2 className="w-5 h-5 text-white animate-spin" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1">
+                  <div className="font-bold text-slate-900">Student Profile Photo</div>
+                  <div className="text-[11px] text-slate-500">Upload or replace this student&apos;s photo anytime.</div>
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <label className="inline-flex items-center gap-1.5 px-3 py-1 bg-white border border-slate-200 hover:border-emerald-500 text-slate-700 hover:text-emerald-700 text-xs font-semibold rounded-lg cursor-pointer transition-colors shadow-2xs">
+                      <Camera className="w-3.5 h-3.5" />
+                      <span>{isUploadingEditPhoto ? 'Uploading...' : editPhotoUrl ? 'Change Photo' : 'Upload Photo'}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleEditPhotoFileChange}
+                        className="hidden"
+                        disabled={isUploadingEditPhoto}
+                      />
+                    </label>
+                    {editPhotoUrl && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditPhotoUrl('');
+                          setEditPhotoPublicId(undefined);
+                        }}
+                        className="px-2.5 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
+                      >
+                        Remove Photo
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">

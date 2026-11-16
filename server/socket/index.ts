@@ -108,6 +108,9 @@ export function emitAttendanceUpdated(data: {
   classId: string;
   date: string;
   sessionHour: number;
+  sessionName?: string;
+  topic?: string;
+  description?: string;
   records: Record<string, string>;
   updatedBy: string;
 }) {
@@ -170,3 +173,45 @@ export function emitDashboardUpdated(role?: string, data?: any) {
     ioInstance.to('institution:main').emit('dashboard:updated', data);
   }
 }
+
+export function emitEventChanged(action: 'created' | 'updated' | 'deleted', event: any) {
+  if (!ioInstance) return;
+  ioInstance.to('institution:main').emit(`event:${action}`, event);
+  ioInstance.to('institution:main').emit('dashboard:updated', { type: 'event', action, event });
+}
+
+export function emitTimetableUpdated(slots?: any[]) {
+  if (!ioInstance) return;
+  ioInstance.to('institution:main').emit('timetable:updated', { slots });
+  ioInstance.to('institution:main').emit('dashboard:updated', { type: 'timetable' });
+}
+
+export function emitFeedbackConfigUpdated(config: any) {
+  if (!ioInstance) return;
+  ioInstance.to('institution:main').emit('feedback:config:updated', config);
+}
+
+export function emitFeedbackSubmitted(submission: any) {
+  if (!ioInstance) return;
+  ioInstance.to('role:MUDEER').emit('feedback:submitted', submission);
+  ioInstance.to('role:HYBA_SUPER_ADMIN').emit('feedback:submitted', submission);
+}
+
+export function emitFeedbackReportUpdated(report: any) {
+  if (!ioInstance) return;
+  ioInstance.to('role:MUDEER').emit('feedback:report:updated', report);
+  ioInstance.to('role:USTHAD').emit('feedback:report:updated', report);
+  if (report?.teacherId) {
+    ioInstance.to(`user:${report.teacherId}`).emit('feedback:report:updated', report);
+  }
+}
+
+export function emitStudentProfilePermissionUpdated(payload: {
+  campusId: string;
+  allowStudentProfileEdit: boolean;
+  updatedBy?: string;
+}) {
+  if (!ioInstance) return;
+  ioInstance.to('institution:main').emit('student:profile-edit-permission:updated', payload);
+}
+

@@ -24,11 +24,13 @@ import {
   Plus,
 } from 'lucide-react';
 import { DatabaseStatusIndicator } from './DatabaseStatusIndicator';
+import { DEFAULT_STUDENT_AVATAR, getStudentPhotoSrc } from '../utils/avatarUtils';
 
 interface NavbarProps {
   currentUser: UserProfile;
   assignedCampus?: Campus;
   currentTab: string;
+  feedbackEnabled?: boolean;
   onTabChange: (tab: string) => void;
   onOpenAttendance: () => void;
   onOpenAddHifz: () => void;
@@ -44,6 +46,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentUser,
   assignedCampus,
   currentTab,
+  feedbackEnabled = true,
   onTabChange,
   onOpenAttendance,
   onOpenAddHifz,
@@ -72,16 +75,16 @@ export const Navbar: React.FC<NavbarProps> = ({
           { id: 'classes', label: 'Classes', icon: Layers },
           { id: 'attendance', label: 'Attendance', icon: CalendarCheck },
           { id: 'hifz', label: 'Hifz Records', icon: BookOpen },
-          { id: 'events', label: 'Events & Programs', icon: Calendar },
+          { id: 'events', label: 'Events', icon: Calendar },
+          { id: 'feedback', label: 'Feedback', icon: MessageSquare },
           { id: 'reports', label: 'Reports', icon: FileText },
         ];
       case 'USTHAD':
         return [
           { id: 'dashboard', label: 'Dashboard', icon: Building2 },
-          { id: 'classes', label: 'My Classes', icon: Layers },
+          { id: 'hifz', label: 'Hifz Tracker', icon: BookOpen },
           { id: 'students', label: 'My Students', icon: GraduationCap },
           { id: 'attendance', label: 'Attendance', icon: CalendarCheck },
-          { id: 'hifz', label: 'Hifz Tracker', icon: BookOpen },
           { id: 'events', label: 'Events & Programs', icon: Calendar },
           { id: 'reports', label: 'Reports', icon: FileText },
         ];
@@ -178,13 +181,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span>Student ID Card</span>
               </button>
             )}
-            {currentUser.role !== 'HYBA_SUPER_ADMIN' && (
+            {((currentUser.role === 'STUDENT' && feedbackEnabled) || currentUser.role === 'MUDEER') && (
               <button
                 onClick={onOpenFeedback}
                 className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer text-emerald-200"
               >
                 <MessageSquare className="w-3.5 h-3.5 text-emerald-300" />
-                <span>Feedback Survey</span>
+                <span>{currentUser.role === 'MUDEER' ? 'Feedback Center' : 'Feedback Survey'}</span>
               </button>
             )}
             {onOpenChangePassword && (
@@ -300,10 +303,19 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full overflow-hidden border border-slate-200 bg-slate-100 shrink-0">
                   <img
-                    src={currentUser.avatar}
+                    src={
+                      currentUser.role === 'STUDENT'
+                        ? getStudentPhotoSrc(currentUser.avatar)
+                        : currentUser.avatar
+                    }
                     alt={currentUser.fullName}
                     className="w-full h-full object-cover"
                     referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      if (currentUser.role === 'STUDENT') {
+                        e.currentTarget.src = DEFAULT_STUDENT_AVATAR;
+                      }
+                    }}
                   />
                 </div>
                 <div className="text-left hidden md:block">
@@ -435,7 +447,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </button>
                 )}
 
-                {currentUser.role !== 'HYBA_SUPER_ADMIN' && (
+                {((currentUser.role === 'STUDENT' && feedbackEnabled) || currentUser.role === 'MUDEER') && (
                   <button
                     onClick={() => {
                       onOpenFeedback();
@@ -444,7 +456,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     className="w-full flex items-center gap-3 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-xl cursor-pointer"
                   >
                     <MessageSquare className="w-4 h-4 text-emerald-600" />
-                    <span>Faculty Feedback Surveys</span>
+                    <span>{currentUser.role === 'MUDEER' ? 'Feedback Management' : 'Faculty Feedback Survey'}</span>
                   </button>
                 )}
               </div>

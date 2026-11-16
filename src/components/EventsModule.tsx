@@ -1,47 +1,51 @@
 import React, { useState, useEffect } from 'react';
 import { CollegeEvent, EventCategory, EventStatus, UserProfile } from '../types';
 import { api } from '../services/api';
-import { getGoogleCalendarUrl, downloadIcsFile } from '../utils/calendarUtils';
+import { getGoogleCalendarUrl } from '../utils/calendarUtils';
 import {
   Calendar,
   Clock,
   MapPin,
   Plus,
   Search,
-  Filter,
-  CheckCircle2,
   AlertCircle,
   X,
   Edit2,
   Trash2,
-  Download,
   ExternalLink,
-  Users,
-  Award,
-  Sparkles,
-  BookOpen,
-  ChevronRight,
+  Image as ImageIcon,
+  UploadCloud,
+  Loader2,
+  Eye,
 } from 'lucide-react';
 
 interface EventsModuleProps {
   currentUser: UserProfile;
+  events?: CollegeEvent[];
+  onEventsChanged?: (events: CollegeEvent[]) => void;
 }
 
-export const EventsModule: React.FC<EventsModuleProps> = ({ currentUser }) => {
+export const EventsModule: React.FC<EventsModuleProps> = ({
+  currentUser,
+  events: propEvents,
+  onEventsChanged,
+}) => {
   const isMudeer = currentUser.role === 'MUDEER';
   const isUsthad = currentUser.role === 'USTHAD';
   const canManageEvents = isMudeer || isUsthad;
 
-  const [events, setEvents] = useState<CollegeEvent[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [events, setEvents] = useState<CollegeEvent[]>(propEvents || []);
+  const [isLoading, setIsLoading] = useState(!propEvents);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Modal states
   const [showEventModal, setShowEventModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CollegeEvent | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [previewPoster, setPreviewPoster] = useState<{ url: string; title: string } | null>(null);
 
   // Form states
   const [title, setTitle] = useState('');
@@ -55,19 +59,36 @@ export const EventsModule: React.FC<EventsModuleProps> = ({ currentUser }) => {
   const [venue, setVenue] = useState('Markazul Hidayathil Islamiyya Main Campus');
   const [targetAudience, setTargetAudience] = useState<'ALL' | 'STUDENTS' | 'PARENTS' | 'TEACHERS'>('ALL');
   const [status, setStatus] = useState<EventStatus>('Scheduled');
+  const [posterUrl, setPosterUrl] = useState('');
+  const [posterPublicId, setPosterPublicId] = useState<string | undefined>(undefined);
+  const [isUploadingPoster, setIsUploadingPoster] = useState(false);
   const [isImportant, setIsImportant] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
+    if (propEvents) {
+      setEvents(propEvents);
+      setIsLoading(false);
+    }
+  }, [propEvents]);
+
+  useEffect(() => {
     loadEvents();
   }, []);
 
+  const syncEvents = (next: CollegeEvent[]) => {
+    setEvents(next);
+    if (onEventsChanged) {
+      onEventsChanged(next);
+    }
+  };
+
   const loadEvents = async () => {
-    setIsLoading(true);
+    if (!propEvents) setIsLoading(true);
     try {
       const data = await api.getEvents();
-      setEvents(data);
+      syncEvents(data);
     } catch (err) {
       console.error('Failed to load events:', err);
     } finally {
@@ -89,6 +110,8 @@ export const EventsModule: React.FC<EventsModuleProps> = ({ currentUser }) => {
     setVenue('Markazul Hidayathil Islamiyya Main Campus');
     setTargetAudience('ALL');
     setStatus('Scheduled');
+    setPosterUrl('');
+    setPosterPublicId(undefined);
     setIsImportant(false);
     setFormError(null);
     setShowEventModal(true);
@@ -107,9 +130,33 @@ export const EventsModule: React.FC<EventsModuleProps> = ({ currentUser }) => {
     setVenue(evt.venue || 'Markazul Hidayathil Islamiyya Main Campus');
     setTargetAudience(evt.targetAudience);
     setStatus(evt.status);
+    setPosterUrl(evt.posterUrl || '');
+    setPosterPublicId(evt.posterPublicId);
     setIsImportant(Boolean(evt.isImportant));
     setFormError(null);
     setShowEventModal(true);
+  };
+
+  const handlePosterFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      setFormError('Event poster image must be smaller than 5MB.');
+      return;
+    }
+
+    setFormError(null);
+    setIsUploadingPoster(true);
+    try {
+      const uploaded = await api.uploadMedia(file, 'events', posterPublicId);
+      setPosterUrl(uploaded.secure_url);
+      setPosterPublicId(uploaded.public_id);
+    } catch (err: any) {
+      setFormError(err.message || 'Failed to upload event poster.');
+    } finally {
+      setIsUploadingPoster(false);
+    }
   };
 
   const handleSaveEvent = async (e: React.FormEvent) => {
@@ -130,16 +177,18 @@ export const EventsModule: React.FC<EventsModuleProps> = ({ currentUser }) => {
         venue,
         targetAudience,
         status,
+        posterUrl,
+        posterPublicId,
         isImportant,
         campusId: currentUser.campusId || 'campus-main',
       };
 
       if (editingEvent) {
         const updated = await api.updateEvent(editingEvent.id, payload);
-        setEvents((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+        syncEvents(events.map((item) => (item.id === updated.id ? updated : item)));
       } else {
         const created = await api.createEvent(payload);
-        setEvents((prev) => [created, ...prev]);
+        syncEvents([created, ...events]);
       }
       setShowEventModal(false);
     } catch (err: any) {
@@ -150,12 +199,14 @@ export const EventsModule: React.FC<EventsModuleProps> = ({ currentUser }) => {
   };
 
   const handleDeleteEvent = async (id: string) => {
+    setActionError(null);
     try {
       await api.deleteEvent(id);
-      setEvents((prev) => prev.filter((item) => item.id !== id));
+      syncEvents(events.filter((item) => item.id !== id));
       setDeleteConfirmId(null);
     } catch (err: any) {
-      alert(`Failed to delete event: ${err.message}`);
+      setActionError(err.message || 'Failed to delete event.');
+      setDeleteConfirmId(null);
     }
   };
 
@@ -190,7 +241,7 @@ export const EventsModule: React.FC<EventsModuleProps> = ({ currentUser }) => {
       {/* Top Banner */}
       <div className="bg-gradient-to-r from-emerald-950 via-teal-950 to-emerald-900 text-white rounded-2xl sm:rounded-3xl p-5 sm:p-7 shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="inline-flex items-center gap-1.5 bg-emerald-800/80 text-emerald-200 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border border-emerald-700">
+          <div className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-300">
             <Calendar className="w-3.5 h-3.5" />
             <span>Academic Programs & College Events</span>
           </div>
@@ -198,20 +249,36 @@ export const EventsModule: React.FC<EventsModuleProps> = ({ currentUser }) => {
             College Events, Majlis & Calendars
           </h1>
           <p className="text-xs text-emerald-200/90 mt-0.5">
-            Markazul Hidayathil Islamiyya · Schedule ceremonies, competitions, tests, and add to your device calendar.
+            Markazul Hidayathil Islamiyya · Schedule ceremonies, competitions, exams, and upload official event posters.
           </p>
         </div>
 
         {canManageEvents && (
           <button
             onClick={openCreateModal}
-            className="px-4 py-2.5 bg-white hover:bg-emerald-50 text-emerald-950 font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer self-start md:self-auto"
+            className="px-4 py-2.5 bg-white hover:bg-emerald-50 text-emerald-950 font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer self-start md:self-auto whitespace-nowrap"
           >
             <Plus className="w-4 h-4 text-emerald-700 stroke-[2.5]" />
             <span>Schedule College Event</span>
           </button>
         )}
       </div>
+
+      {actionError && (
+        <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>{actionError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActionError(null)}
+            className="text-rose-700 hover:text-rose-900 cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div className="bg-white rounded-2xl border border-slate-200 p-3 sm:p-4 shadow-xs space-y-3">
@@ -243,7 +310,7 @@ export const EventsModule: React.FC<EventsModuleProps> = ({ currentUser }) => {
           </div>
         </div>
 
-        {/* Category Pills */}
+        {/* Category Filter Tabs */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
           <button
             onClick={() => setSelectedCategory('ALL')}
@@ -276,7 +343,12 @@ export const EventsModule: React.FC<EventsModuleProps> = ({ currentUser }) => {
 
       {/* Events List */}
       <div className="space-y-4">
-        {filteredEvents.length > 0 ? (
+        {isLoading ? (
+          <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center text-xs text-slate-500 flex items-center justify-center gap-2">
+            <Loader2 className="w-4 h-4 animate-spin text-emerald-700" />
+            <span>Loading college events...</span>
+          </div>
+        ) : filteredEvents.length > 0 ? (
           filteredEvents.map((event) => {
             const dateParts = event.startDate.split('-');
             const year = dateParts[0];
@@ -291,43 +363,66 @@ export const EventsModule: React.FC<EventsModuleProps> = ({ currentUser }) => {
             return (
               <div
                 key={event.id}
-                className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 shadow-xs hover:border-emerald-300 transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
+                className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 shadow-xs hover:border-emerald-300 transition-all flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4"
               >
-                <div className="flex items-start gap-4 flex-1">
-                  {/* Calendar Date Block */}
-                  <div className="w-16 h-18 rounded-2xl bg-gradient-to-b from-emerald-900 to-teal-950 text-white flex flex-col items-center justify-center shrink-0 shadow-xs border border-emerald-800">
-                    <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-300">
-                      {monthStr}
-                    </span>
-                    <span className="text-xl font-extrabold font-mono leading-none my-0.5">
-                      {dayStr}
-                    </span>
-                    <span className="text-[9px] text-emerald-200/80 font-mono">
-                      {year}
-                    </span>
-                  </div>
+                <div className="flex items-start gap-4 flex-1 min-w-0">
+                  {/* Optional Event Poster Thumbnail or Date Block */}
+                  {event.posterUrl ? (
+                    <button
+                      type="button"
+                      onClick={() => setPreviewPoster({ url: event.posterUrl!, title: event.title })}
+                      className="w-20 h-24 rounded-xl overflow-hidden border border-slate-200 bg-slate-100 shrink-0 relative group cursor-pointer"
+                      title="View Event Poster"
+                    >
+                      <img
+                        src={event.posterUrl}
+                        alt={`${event.title} poster`}
+                        className="w-full h-full object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                      <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <Eye className="w-4 h-4 text-white" />
+                      </div>
+                    </button>
+                  ) : (
+                    <div className="w-16 h-18 rounded-2xl bg-gradient-to-b from-emerald-900 to-teal-950 text-white flex flex-col items-center justify-center shrink-0 shadow-xs border border-emerald-800">
+                      <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-300">
+                        {monthStr}
+                      </span>
+                      <span className="text-xl font-extrabold font-mono leading-none my-0.5 tabular-nums">
+                        {dayStr}
+                      </span>
+                      <span className="text-[9px] text-emerald-200/80 font-mono tabular-nums">
+                        {year}
+                      </span>
+                    </div>
+                  )}
 
                   {/* Main Event Info */}
                   <div className="space-y-1.5 flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-900 border border-emerald-200/60 px-2 py-0.5 rounded">
-                        {event.category}
-                      </span>
+                    <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-500">
+                      <span className="text-emerald-800">{event.category}</span>
+                      <span aria-hidden="true">·</span>
                       <span
-                        className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
+                        className={
                           event.status === 'Completed'
-                            ? 'bg-slate-100 text-slate-600'
+                            ? 'text-slate-500'
                             : event.status === 'Ongoing'
-                            ? 'bg-amber-50 text-amber-800 border border-amber-200'
-                            : 'bg-teal-50 text-teal-800 border border-teal-200'
-                        }`}
+                            ? 'text-amber-700'
+                            : 'text-teal-700'
+                        }
                       >
                         {event.status}
                       </span>
+                      <span aria-hidden="true">·</span>
+                      <span className="font-mono tabular-nums">
+                        {monthStr} {dayStr}, {year}
+                      </span>
                       {event.targetAudience !== 'ALL' && (
-                        <span className="text-[10px] font-medium bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">
-                          Audience: {event.targetAudience}
-                        </span>
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <span>Audience: {event.targetAudience}</span>
+                        </>
                       )}
                     </div>
 
@@ -335,7 +430,7 @@ export const EventsModule: React.FC<EventsModuleProps> = ({ currentUser }) => {
                       {event.title}
                     </h3>
                     {event.arabicTitle && (
-                      <div className="text-xs text-emerald-700 font-arabic">
+                      <div className="text-sm text-emerald-700 font-arabic">
                         {event.arabicTitle}
                       </div>
                     )}
@@ -345,7 +440,7 @@ export const EventsModule: React.FC<EventsModuleProps> = ({ currentUser }) => {
                     </p>
 
                     <div className="flex flex-wrap items-center gap-y-1 gap-x-4 text-xs text-slate-500 pt-1 font-medium">
-                      <div className="flex items-center gap-1.5 text-slate-700 font-mono">
+                      <div className="flex items-center gap-1.5 text-slate-700 font-mono tabular-nums">
                         <Clock className="w-3.5 h-3.5 text-emerald-700" />
                         <span>
                           {event.startTime} - {event.endTime}
@@ -356,17 +451,27 @@ export const EventsModule: React.FC<EventsModuleProps> = ({ currentUser }) => {
                         <span className="truncate max-w-xs">{event.venue}</span>
                       </div>
                       {event.createdBy && (
-                        <div className="text-[11px] text-slate-400 italic">
-                          By: {event.createdBy}
+                        <div className="text-[11px] text-slate-400">
+                          By {event.createdBy}
                         </div>
                       )}
                     </div>
                   </div>
                 </div>
 
-                {/* Action Buttons: Add to Calendar for Students & Parents + Admin Edit/Delete */}
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100">
-                  {/* Google Calendar Link */}
+                {/* Action Buttons: Google Calendar + Poster View + Admin Edit/Delete */}
+                <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto shrink-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-slate-100">
+                  {event.posterUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setPreviewPoster({ url: event.posterUrl!, title: event.title })}
+                      className="px-3 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold text-xs rounded-xl border border-slate-200 transition-colors flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                    >
+                      <ImageIcon className="w-3.5 h-3.5 text-emerald-700" />
+                      <span>View Poster</span>
+                    </button>
+                  )}
+
                   <a
                     href={googleCalUrl}
                     target="_blank"
@@ -379,19 +484,8 @@ export const EventsModule: React.FC<EventsModuleProps> = ({ currentUser }) => {
                     <ExternalLink className="w-3 h-3 opacity-60" />
                   </a>
 
-                  {/* iCal .ics download */}
-                  <button
-                    onClick={() => downloadIcsFile(event)}
-                    className="px-3 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold text-xs rounded-xl border border-slate-200 transition-colors flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
-                    title="Download iCal (.ics) file for Apple Calendar, Outlook, and mobile"
-                  >
-                    <Download className="w-3.5 h-3.5 text-slate-600" />
-                    <span>Download .ics</span>
-                  </button>
-
-                  {/* Admin / Usthad Edit & Delete */}
                   {canManageEvents && (
-                    <div className="flex items-center gap-1 self-end sm:self-auto">
+                    <div className="flex items-center gap-1 ml-auto lg:ml-0">
                       <button
                         onClick={() => openEditModal(event)}
                         className="p-2 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
@@ -423,10 +517,42 @@ export const EventsModule: React.FC<EventsModuleProps> = ({ currentUser }) => {
         )}
       </div>
 
+      {/* Event Poster Preview Modal */}
+      {previewPoster && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs"
+          onClick={() => setPreviewPoster(null)}
+        >
+          <div
+            className="bg-white rounded-2xl overflow-hidden max-w-xl w-full shadow-2xl border border-slate-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="text-xs font-bold text-slate-900 truncate pr-3">{previewPoster.title}</div>
+              <button
+                type="button"
+                onClick={() => setPreviewPoster(null)}
+                className="w-7 h-7 rounded-full flex items-center justify-center text-slate-500 hover:bg-slate-200 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-4 bg-slate-900 flex items-center justify-center max-h-[75vh] overflow-auto">
+              <img
+                src={previewPoster.url}
+                alt={previewPoster.title}
+                className="max-w-full max-h-[68vh] object-contain rounded-lg"
+                referrerPolicy="no-referrer"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Delete Confirmation Modal */}
       {deleteConfirmId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl border border-slate-200 animate-fade-in">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl border border-slate-200">
             <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
               <Trash2 className="w-6 h-6" />
             </div>
@@ -439,13 +565,13 @@ export const EventsModule: React.FC<EventsModuleProps> = ({ currentUser }) => {
             <div className="flex items-center gap-2 pt-2">
               <button
                 onClick={() => setDeleteConfirmId(null)}
-                className="flex-1 py-2 text-xs font-semibold text-slate-600 bg-slate-100 rounded-xl hover:bg-slate-200"
+                className="flex-1 py-2 text-xs font-semibold text-slate-600 bg-slate-100 rounded-xl hover:bg-slate-200 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={() => handleDeleteEvent(deleteConfirmId)}
-                className="flex-1 py-2 text-xs font-bold text-white bg-rose-600 rounded-xl hover:bg-rose-700"
+                className="flex-1 py-2 text-xs font-bold text-white bg-rose-600 rounded-xl hover:bg-rose-700 cursor-pointer"
               >
                 Delete Event
               </button>
@@ -467,7 +593,7 @@ export const EventsModule: React.FC<EventsModuleProps> = ({ currentUser }) => {
               </div>
               <button
                 onClick={() => setShowEventModal(false)}
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-white"
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-white cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -480,6 +606,57 @@ export const EventsModule: React.FC<EventsModuleProps> = ({ currentUser }) => {
                   <span>{formError}</span>
                 </div>
               )}
+
+              {/* Event Poster Upload */}
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center gap-3">
+                <div className="w-16 h-20 rounded-lg border border-slate-200 bg-white overflow-hidden flex items-center justify-center shrink-0">
+                  {posterUrl ? (
+                    <img
+                      src={posterUrl}
+                      alt="Event poster preview"
+                      className="w-full h-full object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <ImageIcon className="w-6 h-6 text-slate-300" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-slate-900">Event Poster (Optional)</div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">
+                    Upload a JPG, PNG, or WEBP poster displayed in Student Portal & Event cards.
+                  </div>
+                  <div className="flex items-center gap-2 mt-2">
+                    <label className="inline-flex items-center gap-1.5 px-3 py-1 bg-white border border-slate-200 hover:border-emerald-600 text-slate-700 hover:text-emerald-800 rounded-lg font-semibold cursor-pointer shadow-2xs">
+                      {isUploadingPoster ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <UploadCloud className="w-3.5 h-3.5" />
+                      )}
+                      <span>{isUploadingPoster ? 'Uploading...' : posterUrl ? 'Change Poster' : 'Upload Poster'}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handlePosterFileChange}
+                        className="hidden"
+                        disabled={isUploadingPoster}
+                      />
+                    </label>
+                    {posterUrl && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPosterUrl('');
+                          setPosterPublicId(undefined);
+                        }}
+                        className="px-2.5 py-1 text-rose-600 hover:bg-rose-50 rounded-lg font-semibold cursor-pointer"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
 
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">
@@ -610,20 +787,32 @@ export const EventsModule: React.FC<EventsModuleProps> = ({ currentUser }) => {
                 />
               </div>
 
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  Target Audience
+              <div className="grid grid-cols-2 gap-3 items-end">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Target Audience
+                  </label>
+                  <select
+                    value={targetAudience}
+                    onChange={(e) => setTargetAudience(e.target.value as any)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-medium"
+                  >
+                    <option value="ALL">All (General Campus)</option>
+                    <option value="STUDENTS">Students Only</option>
+                    <option value="PARENTS">Parents & Guardians</option>
+                    <option value="TEACHERS">Faculty & Staff</option>
+                  </select>
+                </div>
+
+                <label className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isImportant}
+                    onChange={(e) => setIsImportant(e.target.checked)}
+                    className="rounded text-emerald-700"
+                  />
+                  <span className="font-semibold text-slate-700">Pin as Important Notice</span>
                 </label>
-                <select
-                  value={targetAudience}
-                  onChange={(e) => setTargetAudience(e.target.value as any)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden font-medium"
-                >
-                  <option value="ALL">All (General Campus)</option>
-                  <option value="STUDENTS">Students Only</option>
-                  <option value="PARENTS">Parents & Guardians</option>
-                  <option value="TEACHERS">Faculty & Staff</option>
-                </select>
               </div>
 
               <div>
@@ -649,8 +838,8 @@ export const EventsModule: React.FC<EventsModuleProps> = ({ currentUser }) => {
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmitting}
-                  className="px-5 py-2 font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5"
+                  disabled={isSubmitting || isUploadingPoster}
+                  className="px-5 py-2 font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5 disabled:opacity-60"
                 >
                   {isSubmitting ? 'Saving...' : editingEvent ? 'Save Changes' : 'Schedule Event'}
                 </button>

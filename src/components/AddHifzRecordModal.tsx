@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { QURAN_SURAHS, JUZ_NAMES } from '../data/quranData';
 import {
   Student,
@@ -8,14 +8,15 @@ import {
   HifzResultStatus,
   UserProfile,
 } from '../types';
-import { X, BookOpen, Sparkles, CheckCircle2, AlertCircle, Info, Bookmark } from 'lucide-react';
+import { X, BookOpen, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { getStudentPhotoSrc } from '../utils/avatarUtils';
 
 interface AddHifzRecordModalProps {
   isOpen: boolean;
   onClose: () => void;
   students: Student[];
   currentUser: UserProfile;
-  onAddRecord: (record: HifzRecord) => void;
+  onAddRecord: (record: HifzRecord) => Promise<void> | void;
 }
 
 export const AddHifzRecordModal: React.FC<AddHifzRecordModalProps> = ({
@@ -38,6 +39,17 @@ export const AddHifzRecordModal: React.FC<AddHifzRecordModalProps> = ({
   const [remarks, setRemarks] = useState<string>('');
   const [nextLessonConfirmed, setNextLessonConfirmed] = useState<boolean>(true);
   const [nextLessonPosition, setNextLessonPosition] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen && students.length > 0 && !students.some((s) => s.id === selectedStudentId)) {
+      setSelectedStudentId(students[0].id);
+    }
+    if (isOpen) {
+      setSubmitError(null);
+    }
+  }, [isOpen, students, selectedStudentId]);
 
   if (!isOpen) return null;
 
@@ -54,8 +66,9 @@ export const AddHifzRecordModal: React.FC<AddHifzRecordModalProps> = ({
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting || !selectedStudentId) return;
 
     const newRecord: HifzRecord = {
       id: `hifz_rec_${Date.now()}`,
@@ -85,8 +98,17 @@ export const AddHifzRecordModal: React.FC<AddHifzRecordModalProps> = ({
       newRecord.surahRangeText = manzilSurahRange;
     }
 
-    onAddRecord(newRecord);
-    onClose();
+    setIsSubmitting(true);
+    setSubmitError(null);
+    try {
+      await onAddRecord(newRecord);
+      setRemarks('');
+      onClose();
+    } catch (err: any) {
+      setSubmitError(err?.message || 'Failed to save Hifz record. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -181,7 +203,7 @@ export const AddHifzRecordModal: React.FC<AddHifzRecordModalProps> = ({
             <div className="p-3 bg-emerald-50/60 rounded-xl border border-emerald-100 flex items-center justify-between text-xs text-emerald-950">
               <div className="flex items-center gap-2.5">
                 <img
-                  src={selectedStudent.photo}
+                  src={getStudentPhotoSrc(selectedStudent.photo)}
                   alt={selectedStudent.fullName}
                   className="w-8 h-8 rounded-full object-cover border border-emerald-200"
                   referrerPolicy="no-referrer"
@@ -387,21 +409,40 @@ export const AddHifzRecordModal: React.FC<AddHifzRecordModalProps> = ({
             />
           </div>
 
+          {/* Error Banner */}
+          {submitError && (
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs font-semibold text-rose-800 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>{submitError}</span>
+            </div>
+          )}
+
           {/* Form Actions */}
           <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2.5">
             <button
               type="button"
               onClick={onClose}
+              disabled={isSubmitting}
               className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-6 py-2.5 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-xl shadow-xs transition-colors flex items-center gap-2 cursor-pointer"
+              disabled={isSubmitting || !selectedStudentId}
+              className="px-6 py-2.5 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 disabled:opacity-60 rounded-xl shadow-xs transition-colors flex items-center gap-2 cursor-pointer"
             >
-              <CheckCircle2 className="w-4 h-4" />
-              <span>Commit Hifz Record</span>
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Saving Record...</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Commit Hifz Record</span>
+                </>
+              )}
             </button>
           </div>
         </form>

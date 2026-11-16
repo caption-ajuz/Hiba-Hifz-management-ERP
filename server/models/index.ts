@@ -10,3 +10,4 @@ export * from './Campus';
 export * from './InstitutionModels';
 export * from './CollegeEvent';
 export * from './TimetableSlot';
+export * from './FeedbackModels';

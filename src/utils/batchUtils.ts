@@ -192,14 +192,17 @@ export function parseCsvRows(text: string): Record<string, string>[] {
 }
 
 /**
- * Generates the default student login password (<AdmissionNumber>@<YYYY-MM-DD>)
+ * Generates the default student login password (Date of Birth in DD-MM-YYYY)
  * matching the server-side `buildDefaultStudentPassword`.
  */
 export function formatDefaultStudentPassword(
-  admissionNumber: string,
+  _admissionNumber: string,
   dateOfBirth?: string
 ): string {
-  const adm = String(admissionNumber || '').trim();
-  const dob = String(dateOfBirth || '').trim() || '2010-01-01';
-  return `${adm}@${dob}`;
+  const dob = String(dateOfBirth || '').trim() || '2011-01-01';
+  const isoMatch = dob.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (isoMatch) {
+    return `${isoMatch[3].padStart(2, '0')}-${isoMatch[2].padStart(2, '0')}-${isoMatch[1]}`;
+  }
+  return dob;
 }

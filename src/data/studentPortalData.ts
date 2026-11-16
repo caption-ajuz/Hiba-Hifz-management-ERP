@@ -41,17 +41,17 @@ export interface StudentFavoriteItem {
 
 export const STUDENT_PROFILE_DATA = {
   id: "std_05",
-  fullName: "MOHAMMED AJASH T",
-  arabicName: "محمد أجش ت.",
+  fullName: "MOHAMMED AJASH",
+  arabicName: "محمد أجش بن عبد الحميد",
   admissionNo: "24812",
   registerNo: "KIAYSCH024",
-  department: "P.G Department of Chemistry (Aided)",
+  department: "Tahfeezul Quran & Islamic Studies",
   collegeName: "Markazul Hidaya Kombam",
   academyName: "Markazul Hidayathil Islamiyya",
   academicYear: "2026 - 2027",
   currentSemester: 6,
   rollNo: "05",
-  avatarUrl: "/assets/images/avatar_student_male_1794118079992.jpg",
+  avatarUrl: "",
   campusPhotoUrl: "/assets/aistudio/20261110_070149_0e1de496.jpg",
   verified: true,
   dateOfBirth: "14 May 2002",
@@ -293,24 +293,21 @@ export const TERMLY_ATTENDANCE_SEMESTER_6: MonthlyTermlyRecord[] = [
 ];
 
 export const ALL_FAVORITES_OPTIONS: StudentFavoriteItem[] = [
-  { id: "fav_timetable", title: "Daily Timetable", iconName: "Clock", description: "Bell schedule & rooms", category: "Academic" },
   { id: "fav_attendance", title: "Attendance Tracker", iconName: "CalendarCheck", description: "Course & hourly matrix", category: "Academic" },
   { id: "fav_virtual_id", title: "Virtual ID Card", iconName: "IdCard", description: "Digital card with barcode", category: "Campus" },
   { id: "fav_hifz", title: "Holy Quran Hifz", iconName: "BookOpen", description: "Sabq, Murajath & Manzil", category: "Academy", badge: "Juz 21" },
   { id: "fav_leave", title: "Duty Leave Application", iconName: "FileText", description: "Apply for let-off / medical", category: "Services" },
-  { id: "fav_marks", title: "Internal Marks", iconName: "Award", description: "Continuous assessment & CGPA", category: "Academic" },
-  { id: "fav_library", title: "Digital Library", iconName: "Library", description: "Textbooks & references", category: "Academic" },
-  { id: "fav_events", title: "Events & Fest", iconName: "Calendar", description: "Competitions & ceremonies", category: "Campus" },
-  { id: "fav_feedback", title: "Faculty Feedback", iconName: "MessageSquare", description: "Course survey evaluation", category: "Services", badge: "1 Pending" },
+  { id: "fav_events", title: "Events & Announcements", iconName: "Calendar", description: "Programs & notices", category: "Campus" },
+  { id: "fav_feedback", title: "Faculty Feedback", iconName: "MessageSquare", description: "Course survey evaluation", category: "Services" },
 ];
 
 export const DEFAULT_PINNED_FAVORITES = [
-  "fav_timetable",
   "fav_attendance",
   "fav_virtual_id",
   "fav_hifz",
   "fav_leave",
-  "fav_marks",
+  "fav_events",
+  "fav_feedback",
 ];
 
 export const STUDENT_NOTIFICATIONS = [
