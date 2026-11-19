@@ -343,18 +343,28 @@ export async function ensureParentUserAccountForStudent(student: {
       .map((s) => s.id);
     if (!siblingIds.includes(student.id)) siblingIds.push(student.id);
 
-    const existing = db.users.find(
-      (u) =>
-        u.role === 'PARENT' &&
-        (phonesMatch(u.phone, student.parentPhone) ||
-          (Array.isArray(u.linkedStudentIds) && u.linkedStudentIds.includes(student.id)))
+    const existingByPhone = db.users.find(
+      (u) => u.role === 'PARENT' && phonesMatch(u.phone, student.parentPhone)
     );
 
-    if (existing) {
-      const merged = Array.from(new Set([...(existing.linkedStudentIds || []), ...siblingIds]));
-      existing.linkedStudentIds = merged;
-      if (!existing.phone && student.parentPhone) existing.phone = student.parentPhone;
-      return { created: false, userId: existing.id };
+    // Clean up stale link if student's parentPhone was reassigned away from another parent user
+    for (const u of db.users) {
+      if (
+        u.role === 'PARENT' &&
+        u.id !== existingByPhone?.id &&
+        Array.isArray(u.linkedStudentIds) &&
+        u.linkedStudentIds.includes(student.id) &&
+        !phonesMatch(u.phone, student.parentPhone)
+      ) {
+        u.linkedStudentIds = u.linkedStudentIds.filter((id) => id !== student.id);
+      }
+    }
+
+    if (existingByPhone) {
+      const merged = Array.from(new Set([...(existingByPhone.linkedStudentIds || []), ...siblingIds]));
+      existingByPhone.linkedStudentIds = merged;
+      if (!existingByPhone.phone && student.parentPhone) existingByPhone.phone = student.parentPhone;
+      return { created: false, userId: existingByPhone.id };
     }
 
     const baseUsername = `parent.${phoneKey}`;
@@ -396,19 +406,30 @@ export async function ensureParentUserAccountForStudent(student: {
   if (!siblingIds.includes(student.id)) siblingIds.push(student.id);
 
   const parentUsers = await User.find({ role: 'PARENT' });
-  const existing = parentUsers.find(
-    (u) =>
-      phonesMatch(u.phone, student.parentPhone) ||
-      (Array.isArray(u.linkedStudentIds) && u.linkedStudentIds.includes(student.id))
-  );
+  const existingByPhone = parentUsers.find((u) => phonesMatch(u.phone, student.parentPhone));
 
-  if (existing) {
-    const merged = Array.from(new Set([...(existing.linkedStudentIds || []), ...siblingIds]));
-    if (merged.length !== (existing.linkedStudentIds || []).length) {
-      existing.linkedStudentIds = merged;
-      await existing.save();
+  // Remove stale link from other parent accounts if student's parent phone was changed
+  for (const u of parentUsers) {
+    if (
+      u.id !== existingByPhone?.id &&
+      Array.isArray(u.linkedStudentIds) &&
+      u.linkedStudentIds.includes(student.id) &&
+      !phonesMatch(u.phone, student.parentPhone)
+    ) {
+      u.linkedStudentIds = u.linkedStudentIds.filter((id) => id !== student.id);
+      await u.save();
     }
-    return { created: false, userId: existing.id };
+  }
+
+  if (existingByPhone) {
+    const currentSet = new Set(existingByPhone.linkedStudentIds || []);
+    const merged = Array.from(new Set([...(existingByPhone.linkedStudentIds || []), ...siblingIds]));
+    const changed = merged.length !== currentSet.size || merged.some((id) => !currentSet.has(id));
+    if (changed) {
+      existingByPhone.linkedStudentIds = merged;
+      await existingByPhone.save();
+    }
+    return { created: false, userId: existingByPhone.id };
   }
 
   const baseUsername = `parent.${phoneKey}`;
@@ -443,7 +464,7 @@ export async function ensureParentUserAccountForStudent(student: {
 }
 
 /**
- * Reconciles missing STUDENT (and PARENT) login accounts for all existing students.
+ * Reconciles missing STUDENT and PARENT login accounts and links for all existing students.
  */
 export async function reconcileStudentAndParentAccounts(): Promise<void> {
   if (!isMongoReady()) {
@@ -451,8 +472,10 @@ export async function reconcileStudentAndParentAccounts(): Promise<void> {
     let changed = false;
     for (const std of db.students) {
       const cls = db.classes.find((c) => c.id === std.classId);
-      const res = await ensureStudentUserAccount(std, cls?.name);
-      if (res.created) changed = true;
+      const stuRes = await ensureStudentUserAccount(std, cls?.name);
+      if (stuRes.created) changed = true;
+      const parRes = await ensureParentUserAccountForStudent(std);
+      if (parRes?.created) changed = true;
     }
     if (changed) saveRuntimeDb(db);
     return;
@@ -465,6 +488,7 @@ export async function reconcileStudentAndParentAccounts(): Promise<void> {
   const classMap = new Map(classes.map((c: any) => [c.id, c.name]));
   for (const std of students) {
     await ensureStudentUserAccount(std as any, classMap.get((std as any).classId));
+    await ensureParentUserAccountForStudent(std as any);
   }
 }
 

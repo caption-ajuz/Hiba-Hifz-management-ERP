@@ -25,6 +25,8 @@ import {
   MOCK_EVALUATIONS,
 } from '../data/mockData';
 
+import { queueOfflineAction } from './offlineSync';
+
 const TOKEN_KEY = 'hyba_jwt_token';
 
 export const getAuthToken = (): string | null => {
@@ -39,10 +41,17 @@ export const removeAuthToken = () => {
   localStorage.removeItem(TOKEN_KEY);
 };
 
+function isNetworkFailure(error: any): boolean {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return true;
+  if (error?.status) return false; // Server explicitly returned an HTTP status
+  return error instanceof TypeError || /failed to fetch|networkerror|load failed/i.test(error?.message || '');
+}
+
 async function request<T>(
   endpoint: string,
   options: RequestInit = {},
-  fallbackData?: T
+  fallbackData?: T,
+  offlineQueueMeta?: { label: string; optimisticReturn: T }
 ): Promise<T> {
   const token = getAuthToken();
   const headers = new Headers(options.headers || {});
@@ -55,22 +64,62 @@ async function request<T>(
     headers.set('Content-Type', 'application/json');
   }
 
+  const method = (options.method || 'GET').toUpperCase();
+
+  // If offline and this mutation supports Background Sync queueing, enqueue immediately
+  if (
+    offlineQueueMeta &&
+    (method === 'POST' || method === 'PUT' || method === 'DELETE') &&
+    typeof navigator !== 'undefined' &&
+    !navigator.onLine
+  ) {
+    let parsedBody: unknown;
+    try {
+      parsedBody = typeof options.body === 'string' ? JSON.parse(options.body) : options.body;
+    } catch {
+      parsedBody = options.body;
+    }
+    await queueOfflineAction(endpoint, method, parsedBody, offlineQueueMeta.label);
+    return offlineQueueMeta.optimisticReturn;
+  }
+
   try {
     const res = await fetch(endpoint, {
       ...options,
       headers,
+      credentials: 'include',
     });
 
     if (!res.ok) {
       const errJson = await res.json().catch(() => ({}));
-      throw new Error(errJson.error || `HTTP ${res.status}: ${res.statusText}`);
+      const httpErr = new Error(errJson.error || `HTTP ${res.status}: ${res.statusText}`) as Error & {
+        status?: number;
+      };
+      httpErr.status = res.status;
+      throw httpErr;
     }
 
     const data = await res.json();
     return data.data !== undefined ? data.data : data;
   } catch (error: any) {
+    // Queue offline mutation automatically if network dropped mid-flight
+    if (
+      offlineQueueMeta &&
+      (method === 'POST' || method === 'PUT' || method === 'DELETE') &&
+      isNetworkFailure(error)
+    ) {
+      let parsedBody: unknown;
+      try {
+        parsedBody = typeof options.body === 'string' ? JSON.parse(options.body) : options.body;
+      } catch {
+        parsedBody = options.body;
+      }
+      await queueOfflineAction(endpoint, method, parsedBody, offlineQueueMeta.label);
+      return offlineQueueMeta.optimisticReturn;
+    }
+
     console.warn(`[API] Call to ${endpoint} failed:`, error.message);
-    if (fallbackData !== undefined) {
+    if (fallbackData !== undefined && !error?.status) {
       return fallbackData;
     }
     throw error;
@@ -83,6 +132,7 @@ export const api = {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ username, password }),
     });
 
@@ -100,13 +150,22 @@ export const api = {
     return data;
   },
 
-  async getCurrentUser(): Promise<UserProfile | null> {
+  async logout(): Promise<void> {
     try {
-      const res = await request<{ user: UserProfile }>('/api/auth/me');
-      return res.user || null;
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+      });
     } catch {
-      return null;
+      // Ignore network error during logout; local session will still be purged
+    } finally {
+      removeAuthToken();
     }
+  },
+
+  async getCurrentUser(): Promise<UserProfile | null> {
+    const res = await request<{ user: UserProfile }>('/api/auth/me');
+    return res.user || null;
   },
 
   async changePassword(currentPassword: string, newPassword: string): Promise<{ success: boolean; message: string }> {
@@ -178,17 +237,33 @@ export const api = {
   },
 
   async createStudent(student: Partial<Student>): Promise<Student> {
-    return request<Student>('/api/students', {
-      method: 'POST',
-      body: JSON.stringify(student),
-    });
+    return request<Student>(
+      '/api/students',
+      {
+        method: 'POST',
+        body: JSON.stringify(student),
+      },
+      undefined,
+      {
+        label: `Add student ${student.fullName || ''}`.trim(),
+        optimisticReturn: student as Student,
+      }
+    );
   },
 
   async updateStudent(id: string, updates: Partial<Student>): Promise<Student> {
-    return request<Student>(`/api/students/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(updates),
-    });
+    return request<Student>(
+      `/api/students/${id}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(updates),
+      },
+      undefined,
+      {
+        label: 'Update student profile',
+        optimisticReturn: { id, ...updates } as Student,
+      }
+    );
   },
 
   async deleteStudent(id: string): Promise<void> {
@@ -375,10 +450,18 @@ export const api = {
   },
 
   async saveAttendanceSession(session: AttendanceSession): Promise<AttendanceSession> {
-    return request<AttendanceSession>('/api/attendance/session', {
-      method: 'POST',
-      body: JSON.stringify(session),
-    });
+    return request<AttendanceSession>(
+      '/api/attendance/session',
+      {
+        method: 'POST',
+        body: JSON.stringify(session),
+      },
+      undefined,
+      {
+        label: `Attendance ${session.date} (Hr ${session.sessionHour})`,
+        optimisticReturn: { ...session, submittedAt: new Date().toISOString() },
+      }
+    );
   },
 
   async getStudentAttendance(studentId: string): Promise<AttendanceItemRecord[]> {
@@ -397,10 +480,21 @@ export const api = {
   },
 
   async createHifzRecord(record: Partial<HifzRecord>): Promise<HifzRecord> {
-    return request<HifzRecord>('/api/hifz', {
-      method: 'POST',
-      body: JSON.stringify(record),
-    });
+    return request<HifzRecord>(
+      '/api/hifz',
+      {
+        method: 'POST',
+        body: JSON.stringify(record),
+      },
+      undefined,
+      {
+        label: `Hifz ${record.recordType || 'Record'}`,
+        optimisticReturn: {
+          id: record.id || `offline_hifz_${Date.now()}`,
+          ...record,
+        } as HifzRecord,
+      }
+    );
   },
 
   // Cloudinary Media Upload
@@ -421,6 +515,7 @@ export const api = {
     const res = await fetch('/api/upload/image', {
       method: 'POST',
       headers,
+      credentials: 'include',
       body: formData,
     });
 
@@ -550,10 +645,31 @@ export const api = {
     teacherId: string;
     answers: Array<{ questionId: string; value: string | number | boolean }>;
   }): Promise<FeedbackSubmission> {
-    return request<FeedbackSubmission>('/api/feedback/submit', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
+    return request<FeedbackSubmission>(
+      '/api/feedback/submit',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+      undefined,
+      {
+        label: 'Faculty feedback submission',
+        optimisticReturn: {
+          id: `offline_fb_${Date.now()}`,
+          campusId: '',
+          studentId: '',
+          studentName: '',
+          classId: '',
+          batchName: '',
+          teacherId: payload.teacherId,
+          teacherName: '',
+          facultyDepartment: '',
+          term: '',
+          answers: [],
+          submittedAt: new Date().toISOString(),
+        },
+      }
+    );
   },
 
   async getFeedbackSubmissions(): Promise<FeedbackSubmission[]> {

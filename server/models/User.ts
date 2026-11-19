@@ -1,6 +1,17 @@
 import mongoose, { Schema, Document } from 'mongoose';
 import bcrypt from 'bcryptjs';
 
+export interface IWebAuthnCredential {
+  credentialID: string;
+  publicKey: string;
+  counter: number;
+  transports?: string[];
+  deviceName?: string;
+  authenticatorType?: string;
+  createdAt: Date;
+  lastUsedAt?: Date;
+}
+
 export interface IUser extends Document {
   id: string; // custom/external id matching frontend
   role: 'HYBA_SUPER_ADMIN' | 'MUDEER' | 'USTHAD' | 'STUDENT' | 'PARENT';
@@ -21,10 +32,25 @@ export interface IUser extends Document {
   mustChangePassword?: boolean;
   isActive: boolean;
   lastLoginAt?: Date;
+  webauthnCredentials?: IWebAuthnCredential[];
   comparePassword(candidate: string): Promise<boolean>;
   createdAt: Date;
   updatedAt: Date;
 }
+
+const WebAuthnCredentialSchema = new Schema<IWebAuthnCredential>(
+  {
+    credentialID: { type: String, required: true },
+    publicKey: { type: String, required: true },
+    counter: { type: Number, required: true, default: 0 },
+    transports: [{ type: String }],
+    deviceName: { type: String, default: 'Trusted Biometric Device' },
+    authenticatorType: { type: String, default: 'platform' },
+    createdAt: { type: Date, default: Date.now },
+    lastUsedAt: { type: Date },
+  },
+  { _id: false }
+);
 
 const UserSchema = new Schema<IUser>(
   {
@@ -52,6 +78,7 @@ const UserSchema = new Schema<IUser>(
     mustChangePassword: { type: Boolean, default: false },
     isActive: { type: Boolean, default: true },
     lastLoginAt: { type: Date },
+    webauthnCredentials: { type: [WebAuthnCredentialSchema], default: [] },
   },
   {
     timestamps: true,

@@ -22,9 +22,10 @@ import {
   Landmark,
   KeyRound,
   Plus,
+  Fingerprint,
 } from 'lucide-react';
-import { DatabaseStatusIndicator } from './DatabaseStatusIndicator';
 import { DEFAULT_STUDENT_AVATAR, getStudentPhotoSrc } from '../utils/avatarUtils';
+import { PWAInstallButton } from './pwa/PWAInstallButton';
 
 interface NavbarProps {
   currentUser: UserProfile;
@@ -38,6 +39,7 @@ interface NavbarProps {
   onOpenTimetable: () => void;
   onOpenFeedback: () => void;
   onOpenChangePassword?: () => void;
+  onOpenDeviceSettings?: () => void;
   onOpenAddCampus?: () => void;
   onLogout: () => void;
 }
@@ -54,6 +56,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenTimetable,
   onOpenFeedback,
   onOpenChangePassword,
+  onOpenDeviceSettings,
   onOpenAddCampus,
   onLogout,
 }) => {
@@ -160,7 +163,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span className="text-emerald-400 font-arabic text-xs">
               ({currentUser.role === 'MUDEER' && assignedCampus?.arabicName ? assignedCampus.arabicName : INSTITUTION_INFO.arabicName})
             </span>
-            <span className="text-emerald-300/80">· {INSTITUTION_INFO.shortAddress}</span>
           </div>
           <div className="flex items-center gap-4">
             {currentUser.role !== 'HYBA_SUPER_ADMIN' && (
@@ -190,6 +192,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span>{currentUser.role === 'MUDEER' ? 'Feedback Center' : 'Feedback Survey'}</span>
               </button>
             )}
+            {onOpenDeviceSettings && (
+              <button
+                onClick={onOpenDeviceSettings}
+                className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer text-emerald-200"
+                title="Biometric Lock & Device Hardware Permissions"
+              >
+                <Fingerprint className="w-3.5 h-3.5 text-emerald-300" />
+                <span>Biometrics & Device</span>
+              </button>
+            )}
             {onOpenChangePassword && (
               <button
                 onClick={onOpenChangePassword}
@@ -199,6 +211,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span>Change Password</span>
               </button>
             )}
+            <PWAInstallButton variant="topstrip" />
           </div>
         </div>
 
@@ -266,6 +279,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* Zone 3: Actions & User Info */}
             <div className="flex items-center gap-2">
+              <div className="md:hidden">
+                <PWAInstallButton variant="header" />
+              </div>
+
               {currentUser.role === 'HYBA_SUPER_ADMIN' && onOpenAddCampus && (
                 <button
                   onClick={onOpenAddCampus}
@@ -294,8 +311,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </button>
                 </div>
               )}
-
-              <DatabaseStatusIndicator userRole={currentUser.role} />
 
               <div
                 className="flex items-center gap-2 p-1 sm:px-2.5 sm:py-1.5 rounded-xl border border-slate-200 bg-white"
@@ -407,6 +422,24 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 px-3 py-1">
                   Account & Tools
                 </div>
+
+                <PWAInstallButton
+                  variant="drawer"
+                  onActionComplete={() => setIsMobileMenuOpen(false)}
+                />
+
+                {onOpenDeviceSettings && (
+                  <button
+                    onClick={() => {
+                      onOpenDeviceSettings();
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-xs font-semibold text-emerald-900 bg-emerald-50/70 hover:bg-emerald-100/80 rounded-xl cursor-pointer"
+                  >
+                    <Fingerprint className="w-4 h-4 text-emerald-700" />
+                    <span>Biometric Lock & Hardware</span>
+                  </button>
+                )}
 
                 {onOpenChangePassword && (
                   <button

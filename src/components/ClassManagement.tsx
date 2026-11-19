@@ -10,13 +10,9 @@ import {
 import {
   Layers,
   Users,
-  Building,
   Plus,
-  Calendar,
-  CheckCircle,
   X,
   AlertCircle,
-  DoorOpen,
   Edit2,
   Trash2,
 } from 'lucide-react';
@@ -82,6 +78,7 @@ export const ClassManagement: React.FC<ClassManagementProps> = ({
   const [academicYear, setAcademicYear] = useState('2026 - 2027');
   const [campusId, setCampusId] = useState(currentUser.campusId || 'campus-main');
   const [formError, setFormError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Edit fields
@@ -133,12 +130,14 @@ export const ClassManagement: React.FC<ClassManagementProps> = ({
   const handleDeleteClass = async () => {
     if (!classToDelete) return;
     setIsDeleting(true);
+    setActionError(null);
     try {
       await api.deleteClass(classToDelete.id);
       if (onRefreshClasses) onRefreshClasses();
       setClassToDelete(null);
     } catch (err: any) {
-      alert(err.message || 'Failed to delete class batch.');
+      setActionError(err?.message || 'Failed to delete class batch.');
+      setClassToDelete(null);
     } finally {
       setIsDeleting(false);
     }
@@ -189,18 +188,9 @@ export const ClassManagement: React.FC<ClassManagementProps> = ({
       {/* Header */}
       <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/90 p-4 sm:p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-700">
-            <Layers className="w-3.5 h-3.5" />
-            <span>Class & Batch Architecture</span>
-          </div>
-          <h1 className="text-lg sm:text-2xl font-extrabold text-slate-900 tracking-tight mt-0.5">
+          <h1 className="text-lg sm:text-2xl font-extrabold text-slate-900 tracking-tight">
             {isUsthad ? 'My Assigned Class Batches' : 'Tahfeez Batches & Classrooms'}
           </h1>
-          <p className="text-xs text-slate-500 mt-0.5 hidden sm:block">
-            {isUsthad
-              ? 'Class study halls and student enrollments assigned to your mentorship.'
-              : 'Overview of study halls, assigned mentor Usthads, and student distribution.'}
-          </p>
         </div>
 
         {canManage && (
@@ -216,6 +206,18 @@ export const ClassManagement: React.FC<ClassManagementProps> = ({
           </button>
         )}
       </div>
+
+      {actionError && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-800 px-4 py-2.5 rounded-xl text-xs font-medium flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>{actionError}</span>
+          </div>
+          <button type="button" onClick={() => setActionError(null)} className="text-rose-700 font-bold cursor-pointer">
+            ×
+          </button>
+        </div>
+      )}
 
       {/* Classes Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">

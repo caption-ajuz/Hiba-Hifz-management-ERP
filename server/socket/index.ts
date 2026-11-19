@@ -12,6 +12,7 @@ export interface SocketUser {
   username: string;
   fullName: string;
   studentId?: string;
+  linkedStudentIds?: string[];
   assignedClassIds?: string[];
 }
 
@@ -60,6 +61,13 @@ export function initSocketIO(httpServer: HttpServer): SocketIOServer {
       // If student, join student room
       if (user.studentId) {
         socket.join(`student:${user.studentId}`);
+      }
+
+      // If parent, join rooms for all linked students
+      if (user.linkedStudentIds && Array.isArray(user.linkedStudentIds)) {
+        user.linkedStudentIds.forEach((sid) => {
+          if (sid) socket.join(`student:${sid}`);
+        });
       }
 
       // If usthad with assigned classes, join class rooms
@@ -117,9 +125,13 @@ export function emitAttendanceUpdated(data: {
   if (!ioInstance) return;
   // Broadcast to all active users & specific class room
   ioInstance.to('institution:main').emit('attendance:updated', data);
+  Object.keys(data.records || {}).forEach((sid) => {
+    ioInstance!.to(`student:${sid}`).emit('attendance:updated', data);
+  });
   ioInstance.to('role:HYBA_SUPER_ADMIN').emit('dashboard:updated', { type: 'attendance', data });
   ioInstance.to('role:MUDEER').emit('dashboard:updated', { type: 'attendance', data });
   ioInstance.to('role:USTHAD').emit('dashboard:updated', { type: 'attendance', data });
+  ioInstance.to('role:PARENT').emit('dashboard:updated', { type: 'attendance', data });
 }
 
 export function emitHifzRecordCreated(record: any) {

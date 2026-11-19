@@ -8,15 +8,11 @@ import {
   Phone,
   Mail,
   Award,
-  BookOpen,
   Briefcase,
   X,
-  CheckCircle,
   KeyRound,
-  Shield,
   AlertCircle,
   CheckCircle2,
-  Lock,
   Edit2,
   Trash2,
 } from 'lucide-react';
@@ -44,6 +40,8 @@ export const TeacherManagement: React.FC<TeacherManagementProps> = ({
   const [selectedTeacherForReset, setSelectedTeacherForReset] = useState<Teacher | null>(null);
   const [newPasswordInput, setNewPasswordInput] = useState('');
   const [resetMessage, setResetMessage] = useState<string | null>(null);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Edit Usthad State
   const [showEditModal, setShowEditModal] = useState(false);
@@ -131,12 +129,14 @@ export const TeacherManagement: React.FC<TeacherManagementProps> = ({
   const handleDeleteTeacher = async () => {
     if (!teacherToDelete) return;
     setIsDeleting(true);
+    setActionError(null);
     try {
       await api.deleteTeacher(teacherToDelete.id);
       setTeacherToDelete(null);
       if (onRefreshTeachers) onRefreshTeachers();
     } catch (err: any) {
-      alert(`Failed to delete teacher: ${err.message}`);
+      setActionError(err?.message || 'Failed to delete teacher.');
+      setTeacherToDelete(null);
     } finally {
       setIsDeleting(false);
     }
@@ -209,17 +209,19 @@ export const TeacherManagement: React.FC<TeacherManagementProps> = ({
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedTeacherForReset || !newPasswordInput) return;
+    setResetError(null);
 
     try {
       await api.resetTeacherPassword(selectedTeacherForReset.id, newPasswordInput);
-      setResetMessage(`Password successfully updated for ${selectedTeacherForReset.fullName}`);
+      setResetMessage(`Password updated for ${selectedTeacherForReset.fullName}`);
       setTimeout(() => {
         setShowResetModal(false);
         setResetMessage(null);
+        setResetError(null);
         setNewPasswordInput('');
       }, 2000);
     } catch (err: any) {
-      alert(`Error: ${err.message}`);
+      setResetError(err?.message || 'Failed to update password.');
     }
   };
 
@@ -228,16 +230,9 @@ export const TeacherManagement: React.FC<TeacherManagementProps> = ({
       {/* Header */}
       <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/90 p-4 sm:p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-700">
-            <Users className="w-3.5 h-3.5" />
-            <span>Faculty & Mentorship</span>
-          </div>
-          <h1 className="text-lg sm:text-2xl font-extrabold text-slate-900 tracking-tight mt-0.5">
+          <h1 className="text-lg sm:text-2xl font-extrabold text-slate-900 tracking-tight">
             Usthad Faculty Directory
           </h1>
-          <p className="text-xs text-slate-500 mt-0.5 hidden sm:block">
-            Manage Hifz mentors, class batch assignments, authentication accounts, and credentials.
-          </p>
         </div>
 
         {isMudeer && (
@@ -255,6 +250,18 @@ export const TeacherManagement: React.FC<TeacherManagementProps> = ({
           </button>
         )}
       </div>
+
+      {actionError && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-800 px-4 py-2.5 rounded-xl text-xs font-medium flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>{actionError}</span>
+          </div>
+          <button type="button" onClick={() => setActionError(null)} className="text-rose-700 font-bold cursor-pointer">
+            ×
+          </button>
+        </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-xs flex items-center justify-between gap-3">
@@ -660,6 +667,12 @@ export const TeacherManagement: React.FC<TeacherManagementProps> = ({
               </div>
             ) : (
               <form onSubmit={handleResetPassword} className="space-y-3">
+                {resetError && (
+                  <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-xl flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                    <span>{resetError}</span>
+                  </div>
+                )}
                 <div className="text-xs text-slate-600">
                   Setting a new password for Usthad <strong>{selectedTeacherForReset.fullName}</strong> ({selectedTeacherForReset.teacherId}).
                 </div>

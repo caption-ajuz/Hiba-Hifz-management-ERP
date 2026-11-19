@@ -386,6 +386,17 @@ export function buildDefaultFeedbackConfig(campusId = 'campus-main') {
   };
 }
 
+export interface RuntimeWebAuthnCredential {
+  credentialID: string;
+  publicKey: string;
+  counter: number;
+  transports?: string[];
+  deviceName?: string;
+  authenticatorType?: string;
+  createdAt: string;
+  lastUsedAt?: string;
+}
+
 export interface RuntimeUser {
   id: string;
   role: 'HYBA_SUPER_ADMIN' | 'MUDEER' | 'USTHAD' | 'STUDENT' | 'PARENT';
@@ -406,6 +417,7 @@ export interface RuntimeUser {
   mustChangePassword?: boolean;
   isActive: boolean;
   lastLoginAt?: string;
+  webauthnCredentials?: RuntimeWebAuthnCredential[];
   createdAt?: string;
   updatedAt?: string;
 }
@@ -606,6 +618,26 @@ function ensureAdminSeedIntegrity(db: RuntimeDb): boolean {
     }
   }
 
+  // Ensure every student sharing a parentPhone with a PARENT account is linked in linkedStudentIds
+  for (const parentUser of db.users) {
+    if (parentUser.role !== 'PARENT') continue;
+    const pDigits = String(parentUser.phone || '').replace(/\D/g, '');
+    if (pDigits.length < 7) continue;
+    const pKey = pDigits.length >= 10 ? pDigits.slice(-10) : pDigits;
+    const currentLinks = new Set(parentUser.linkedStudentIds || []);
+    for (const std of db.students) {
+      const sDigits = String(std.parentPhone || '').replace(/\D/g, '');
+      const sKey = sDigits.length >= 10 ? sDigits.slice(-10) : sDigits;
+      if (sDigits.length >= 7 && (sDigits === pDigits || sKey === pKey) && !currentLinks.has(std.id)) {
+        currentLinks.add(std.id);
+        changed = true;
+      }
+    }
+    if (changed) {
+      parentUser.linkedStudentIds = Array.from(currentLinks);
+    }
+  }
+
   for (const campus of db.campuses) {
     if (typeof campus.allowStudentProfileEdit !== 'boolean') {
       campus.allowStudentProfileEdit = false;
@@ -685,5 +717,6 @@ export function sanitizeRuntimeUser(u: RuntimeUser) {
     linkedStudentIds: u.linkedStudentIds,
     assignedClassIds: u.assignedClassIds,
     mustChangePassword: Boolean(u.mustChangePassword),
+    biometricEnabled: Boolean(u.webauthnCredentials && u.webauthnCredentials.length > 0),
   };
 }

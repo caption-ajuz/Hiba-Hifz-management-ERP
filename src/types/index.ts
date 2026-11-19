@@ -17,6 +17,7 @@ export interface UserProfile {
   linkedStudentIds?: string[]; // If parent
   assignedClassIds?: string[]; // If usthad
   mustChangePassword?: boolean; // First-login password change prompt
+  biometricEnabled?: boolean; // WebAuthn Fingerprint / Face Unlock enrolled
 }
 
 export interface Campus {

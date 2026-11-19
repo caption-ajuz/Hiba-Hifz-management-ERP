@@ -15,6 +15,7 @@ import {
   buildDefaultStudentPassword,
   ensureStudentUserAccount,
   ensureParentUserAccountForStudent,
+  phonesMatch,
 } from '../utils/accessHelpers';
 import { z } from 'zod';
 
@@ -81,7 +82,9 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
         list = list.filter((s) => s.id === (user.studentId || '__none__'));
       } else if (user.role === 'PARENT') {
         const linked = user.linkedStudentIds || [];
-        list = list.filter((s) => linked.includes(s.id));
+        list = list.filter(
+          (s) => linked.includes(s.id) || (user.phone && phonesMatch(s.parentPhone, user.phone))
+        );
       } else if (user.role === 'USTHAD') {
         if (user.campusId) list = list.filter((s) => s.campusId === user.campusId);
         if (classId) {
@@ -142,7 +145,16 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
     if (user.role === 'STUDENT') {
       query.id = user.studentId || '__none__';
     } else if (user.role === 'PARENT') {
-      query.id = { $in: user.linkedStudentIds || [] };
+      const linked = [...(user.linkedStudentIds || [])];
+      if (user.phone) {
+        const phoneMatched = await Student.find().select('id parentPhone').lean();
+        for (const st of phoneMatched) {
+          if (phonesMatch((st as any).parentPhone, user.phone) && !linked.includes((st as any).id)) {
+            linked.push((st as any).id);
+          }
+        }
+      }
+      query.id = { $in: linked };
     } else if (user.role === 'USTHAD') {
       if (user.campusId) query.campusId = user.campusId;
       if (classId) {

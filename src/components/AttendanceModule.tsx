@@ -12,19 +12,13 @@ import { getStudentPhotoSrc } from '../utils/avatarUtils';
 import {
   Calendar,
   CheckCircle2,
-  XCircle,
-  Clock,
-  HelpCircle,
   CheckCheck,
   RotateCcw,
   LayoutGrid,
   List,
   Search,
   AlertTriangle,
-  Info,
   ChevronDown,
-  User,
-  Sparkles,
   Save,
   Loader2,
   AlertCircle,
@@ -307,7 +301,11 @@ export const AttendanceModule: React.FC<AttendanceModuleProps> = ({
     }
   };
 
-  const currentClassObj = classes.find((c) => c.id === selectedClassId) || classes[0];
+  const currentClassObj =
+    allowedClasses.find((c) => c.id === selectedClassId) ||
+    allowedClasses[0] ||
+    classes.find((c) => c.id === selectedClassId) ||
+    classes[0];
 
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6 pb-20">
@@ -318,7 +316,7 @@ export const AttendanceModule: React.FC<AttendanceModuleProps> = ({
           <div className="text-xs">
             <div className="font-bold">Attendance Saved Successfully</div>
             <div className="text-[11px] text-emerald-200">
-              {currentClassObj.name} · Hour {selectedHour} recorded.
+              {currentClassObj?.name || 'Class Batch'} · Hour {selectedHour} recorded.
             </div>
           </div>
         </div>
@@ -347,31 +345,13 @@ export const AttendanceModule: React.FC<AttendanceModuleProps> = ({
       {/* Top Header Card */}
       <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/90 p-4 sm:p-6 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-emerald-700">
-              <span className="inline-flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5" />
-                <span>Daily Attendance Ledger</span>
-              </span>
-              {isLoadingSession ? (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-semibold normal-case tracking-normal">
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  Loading saved session...
-                </span>
-              ) : savedSessionInfo ? (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-semibold normal-case tracking-normal">
-                  <CheckCircle2 className="w-3 h-3" />
-                  Saved Record Loaded
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-semibold normal-case tracking-normal">
-                  Not Marked Yet
-                </span>
-              )}
-            </div>
-            <h1 className="text-lg sm:text-2xl font-extrabold text-slate-900 tracking-tight mt-0.5">
-              Attendance Register & Status Grid
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-lg sm:text-2xl font-extrabold text-slate-900 tracking-tight">
+              Attendance Register
             </h1>
+            {isLoadingSession && (
+              <Loader2 className="w-4 h-4 animate-spin text-emerald-700" />
+            )}
           </div>
 
           {/* Quick Date and Class Picker */}
@@ -390,13 +370,18 @@ export const AttendanceModule: React.FC<AttendanceModuleProps> = ({
               <select
                 value={selectedClassId}
                 onChange={(e) => setSelectedClassId(e.target.value)}
-                className="w-full sm:w-auto bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-800 focus:outline-hidden pr-7 cursor-pointer"
+                disabled={allowedClasses.length === 0}
+                className="w-full sm:w-auto bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-800 focus:outline-hidden pr-7 cursor-pointer disabled:opacity-60"
               >
-                {allowedClasses.map((cls) => (
-                  <option key={cls.id} value={cls.id}>
-                    {cls.name} ({cls.totalStudents})
-                  </option>
-                ))}
+                {allowedClasses.length === 0 ? (
+                  <option value="">No batches available</option>
+                ) : (
+                  allowedClasses.map((cls) => (
+                    <option key={cls.id} value={cls.id}>
+                      {cls.name} ({cls.totalStudents})
+                    </option>
+                  ))
+                )}
               </select>
               <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
@@ -441,13 +426,16 @@ export const AttendanceModule: React.FC<AttendanceModuleProps> = ({
         <div>
           <div className="text-[11px] text-emerald-200 font-medium">Active Batch Roster</div>
           <div className="text-sm sm:text-base font-bold text-white flex items-center gap-1.5">
-            <span>{currentClassObj.name}</span>
-            <span className="text-xs font-normal text-emerald-300 font-arabic hidden sm:inline">
-              ({currentClassObj.arabicName})
-            </span>
+            <span>{currentClassObj?.name || 'No Class Batch Selected'}</span>
+            {currentClassObj?.arabicName && (
+              <span className="text-xs font-normal text-emerald-300 font-arabic hidden sm:inline">
+                ({currentClassObj.arabicName})
+              </span>
+            )}
           </div>
           <div className="text-[11px] text-emerald-100/80">
-            {currentClassObj.roomNumber} · {classStudents.length} Students
+            {currentClassObj?.roomNumber ? `${currentClassObj.roomNumber} · ` : ''}
+            {classStudents.length} Students
           </div>
         </div>
 
@@ -566,7 +554,7 @@ export const AttendanceModule: React.FC<AttendanceModuleProps> = ({
         <div className="bg-white rounded-2xl border border-slate-200 p-3.5 sm:p-5 shadow-xs space-y-3">
           <div className="flex items-center justify-between text-[11px] text-slate-500 pb-2 border-b border-slate-100">
             <span className="font-medium">
-              Tap box to cycle: Present → Absent → Late → Unmarked
+              Tap box: Present · Absent · Late · Unmarked
             </span>
             <span className="font-mono text-slate-400">
               {filteredStudents.length} Students
@@ -766,11 +754,7 @@ export const AttendanceModule: React.FC<AttendanceModuleProps> = ({
           </div>
         </div>
 
-        <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-100">
-          <div className="text-[11px] text-slate-500 flex items-center gap-1.5 self-start sm:self-auto">
-            <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-            <span>Attendance will be recorded against date {selectedDate} and session hour {selectedHour}.</span>
-          </div>
+        <div className="pt-2 flex items-center justify-end gap-3 border-t border-slate-100">
 
           {!isReadOnly ? (
             <button

@@ -6,7 +6,7 @@ import { Teacher } from '../models/Teacher';
 import { emitAttendanceUpdated } from '../socket';
 import { authenticate, AuthRequest, authorize, logAuditEvent } from '../middleware/auth';
 import { isMongoReady, getRuntimeDb, saveRuntimeDb } from '../config/runtimeStore';
-import { resolveEffectiveAssignedClassIds } from '../utils/accessHelpers';
+import { resolveEffectiveAssignedClassIds, phonesMatch } from '../utils/accessHelpers';
 import { z } from 'zod';
 
 const router = Router();
@@ -151,10 +151,14 @@ router.post('/session', authenticate, authorize('MUDEER', 'USTHAD'), async (req:
         const markedItems = db.attendanceItems.filter(
           (i) => i.studentId === studentId && i.status !== 'NOT_MARKED'
         );
-        if (markedItems.length > 0) {
-          const present = markedItems.filter((i) => i.status === 'PRESENT' || i.status === 'LATE').length;
-          const stu = db.students.find((s) => s.id === studentId);
-          if (stu) stu.attendanceRate = Math.round((present / markedItems.length) * 100);
+        const stu = db.students.find((s) => s.id === studentId);
+        if (stu) {
+          if (markedItems.length > 0) {
+            const present = markedItems.filter((i) => i.status === 'PRESENT' || i.status === 'LATE').length;
+            stu.attendanceRate = Math.round((present / markedItems.length) * 100);
+          } else {
+            stu.attendanceRate = 100;
+          }
         }
       }
 
@@ -221,27 +225,23 @@ router.post('/session', authenticate, authorize('MUDEER', 'USTHAD'), async (req:
       await AttendanceItem.bulkWrite(bulkOps);
     }
 
-    setTimeout(async () => {
-      try {
-        const studentIds = Object.keys(records);
-        for (const sid of studentIds) {
-          const totalRecords = await AttendanceItem.countDocuments({
-            studentId: sid,
-            status: { $ne: 'NOT_MARKED' },
-          });
-          const presentRecords = await AttendanceItem.countDocuments({
-            studentId: sid,
-            status: { $in: ['PRESENT', 'LATE'] },
-          });
-          if (totalRecords > 0) {
-            const rate = Math.round((presentRecords / totalRecords) * 100);
-            await Student.updateOne({ id: sid }, { attendanceRate: rate });
-          }
-        }
-      } catch (err) {
-        console.error('[Attendance] Rate recalculation error:', err);
+    try {
+      const studentIds = Object.keys(records);
+      for (const sid of studentIds) {
+        const totalRecords = await AttendanceItem.countDocuments({
+          studentId: sid,
+          status: { $ne: 'NOT_MARKED' },
+        });
+        const presentRecords = await AttendanceItem.countDocuments({
+          studentId: sid,
+          status: { $in: ['PRESENT', 'LATE'] },
+        });
+        const rate = totalRecords > 0 ? Math.round((presentRecords / totalRecords) * 100) : 100;
+        await Student.updateOne({ id: sid }, { attendanceRate: rate });
       }
-    }, 100);
+    } catch (err) {
+      console.error('[Attendance] Rate recalculation error:', err);
+    }
 
     emitAttendanceUpdated({
       classId,
@@ -286,7 +286,25 @@ router.get('/student/:id', authenticate, async (req: AuthRequest, res: Response)
         });
       }
     } else if (user.role === 'PARENT') {
-      const isLinked = user.linkedStudentIds && user.linkedStudentIds.includes(id);
+      let isLinked = Boolean(user.linkedStudentIds && user.linkedStudentIds.includes(id));
+      if (!isLinked && user.phone) {
+        const targetStudent = isMongoReady()
+          ? await Student.findOne({ id }).select('id parentPhone').lean()
+          : getRuntimeDb().students.find((s) => s.id === id);
+        if (targetStudent && phonesMatch(targetStudent.parentPhone, user.phone)) {
+          isLinked = true;
+          if (isMongoReady()) {
+            await User.updateOne({ id: user.id }, { $addToSet: { linkedStudentIds: id } });
+          } else {
+            const db = getRuntimeDb();
+            const rtParent = db.users.find((u) => u.id === user.id);
+            if (rtParent) {
+              rtParent.linkedStudentIds = Array.from(new Set([...(rtParent.linkedStudentIds || []), id]));
+              saveRuntimeDb(db);
+            }
+          }
+        }
+      }
       if (!isLinked) {
         return res.status(403).json({
           success: false,
@@ -316,10 +334,20 @@ router.get('/student/:id', authenticate, async (req: AuthRequest, res: Response)
 
     if (!isMongoReady()) {
       const db = getRuntimeDb();
-      const rawRecords = db.attendanceItems
+      const sorted = db.attendanceItems
         .filter((i) => i.studentId === id)
-        .sort((a, b) => `${b.date}-${b.sessionHour}`.localeCompare(`${a.date}-${a.sessionHour}`))
-        .slice(0, 500);
+        .sort((a, b) => `${b.date}-${b.sessionHour}`.localeCompare(`${a.date}-${a.sessionHour}`));
+
+      // Deduplicate by (date, sessionHour), preferring marked status over NOT_MARKED
+      const dedupedMap = new Map<string, any>();
+      for (const item of sorted) {
+        const key = `${item.date}__h${item.sessionHour}`;
+        const existing = dedupedMap.get(key);
+        if (!existing || (existing.status === 'NOT_MARKED' && item.status !== 'NOT_MARKED')) {
+          dedupedMap.set(key, item);
+        }
+      }
+      const rawRecords = Array.from(dedupedMap.values()).slice(0, 500);
 
       const enriched = rawRecords.map((item) => {
         const session = db.attendanceSessions.find(
@@ -341,10 +369,20 @@ router.get('/student/:id', authenticate, async (req: AuthRequest, res: Response)
       return res.json({ success: true, data: enriched });
     }
 
-    const rawRecords = await AttendanceItem.find({ studentId: id })
-      .sort({ date: -1, sessionHour: -1 })
-      .limit(500)
+    const fetchedRecords = await AttendanceItem.find({ studentId: id })
+      .sort({ date: -1, sessionHour: -1, updatedAt: -1 })
+      .limit(600)
       .lean();
+
+    const dedupedMap = new Map<string, any>();
+    for (const item of fetchedRecords) {
+      const key = `${item.date}__h${item.sessionHour}`;
+      const existing = dedupedMap.get(key);
+      if (!existing || (existing.status === 'NOT_MARKED' && item.status !== 'NOT_MARKED')) {
+        dedupedMap.set(key, item);
+      }
+    }
+    const rawRecords = Array.from(dedupedMap.values()).slice(0, 500);
 
     const uniqueKeys = Array.from(
       new Set(rawRecords.map((r) => `${r.classId}__${r.date}__${r.sessionHour}`))

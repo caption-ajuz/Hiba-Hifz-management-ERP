@@ -180,7 +180,7 @@ export const StudentPeriodDetailModal: React.FC<PeriodDetailModalProps> = ({
                 value={discrepancyReason}
                 onChange={(e) => setDiscrepancyReason(e.target.value)}
                 rows={2}
-                placeholder="Explain here (e.g., I attended the lab session from 09:30 AM with Dr. Sreenivasan)..."
+                placeholder="Explain here (e.g., I attended the Sabq session from 07:00 AM with Usthad)..."
                 className="w-full text-xs p-2.5 rounded-xl border border-amber-300 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 text-slate-800"
                 required
               />

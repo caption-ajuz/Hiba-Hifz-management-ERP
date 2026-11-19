@@ -6,7 +6,14 @@ import { User } from '../models/User';
 import { Student } from '../models/Student';
 import { ClassBatch } from '../models/ClassBatch';
 import { PasswordResetToken } from '../models/InstitutionModels';
-import { generateToken, authenticate, AuthRequest, logAuditEvent } from '../middleware/auth';
+import {
+  generateToken,
+  authenticate,
+  AuthRequest,
+  logAuditEvent,
+  setSessionCookie,
+  clearSessionCookie,
+} from '../middleware/auth';
 import { isMongoReady, getRuntimeDb, saveRuntimeDb, sanitizeRuntimeUser } from '../config/runtimeStore';
 import {
   resolveEffectiveAssignedClassIds,
@@ -16,8 +23,10 @@ import {
   normalizePersonName,
   phonesMatch,
 } from '../utils/accessHelpers';
+import webauthnRoutes from './webauthnRoutes';
 
 const router = Router();
+router.use('/webauthn', webauthnRoutes);
 
 const loginSchema = z.object({
   username: z.string().min(1, 'Username is required'),
@@ -152,9 +161,11 @@ router.post('/login', async (req: Request, res: Response) => {
                 fullName: parentDoc.fullName,
                 campusId: parentDoc.campusId,
                 studentId: parentDoc.studentId,
+                linkedStudentIds: parentDoc.linkedStudentIds || [],
                 assignedClassIds: parentDoc.assignedClassIds || [],
               });
               await logAuditEvent('USER_LOGIN', parentDoc, 'User', parentDoc.id, { via: 'parent_default_mobile' }, req.ip);
+              setSessionCookie(res, token, req);
 
               return res.json({
                 success: true,
@@ -175,6 +186,7 @@ router.post('/login', async (req: Request, res: Response) => {
                   linkedStudentIds: parentDoc.linkedStudentIds,
                   assignedClassIds: parentDoc.assignedClassIds || [],
                   mustChangePassword: Boolean(parentDoc.mustChangePassword),
+                  biometricEnabled: Boolean(parentDoc.webauthnCredentials && parentDoc.webauthnCredentials.length > 0),
                 },
               });
             }
@@ -235,9 +247,11 @@ router.post('/login', async (req: Request, res: Response) => {
         fullName: user.fullName,
         campusId: user.campusId,
         studentId: user.studentId,
+        linkedStudentIds: user.linkedStudentIds || [],
         assignedClassIds: effectiveClassIds,
       });
       await logAuditEvent('USER_LOGIN', user, 'User', user.id, { username: user.username }, req.ip);
+      setSessionCookie(res, token, req);
 
       return res.json({
         success: true,
@@ -258,6 +272,7 @@ router.post('/login', async (req: Request, res: Response) => {
           linkedStudentIds: user.linkedStudentIds,
           assignedClassIds: effectiveClassIds,
           mustChangePassword: Boolean(user.mustChangePassword),
+          biometricEnabled: Boolean(user.webauthnCredentials && user.webauthnCredentials.length > 0),
         },
       });
     }
@@ -329,8 +344,10 @@ router.post('/login', async (req: Request, res: Response) => {
               fullName: parentDoc.fullName,
               campusId: parentDoc.campusId,
               studentId: parentDoc.studentId,
+              linkedStudentIds: parentDoc.linkedStudentIds || [],
               assignedClassIds: parentDoc.assignedClassIds || [],
             });
+            setSessionCookie(res, token, req);
             return res.json({
               success: true,
               token,
@@ -390,9 +407,11 @@ router.post('/login', async (req: Request, res: Response) => {
       fullName: rtUser.fullName,
       campusId: rtUser.campusId,
       studentId: rtUser.studentId,
+      linkedStudentIds: rtUser.linkedStudentIds || [],
       assignedClassIds: effectiveClassIds,
     });
 
+    setSessionCookie(res, token, req);
     return res.json({
       success: true,
       token,
@@ -410,14 +429,24 @@ router.post('/login', async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/auth/logout - Explicitly revoke persistent HttpOnly session cookie
+router.post('/logout', (req: Request, res: Response) => {
+  clearSessionCookie(res, req);
+  return res.json({ success: true, message: 'Signed out securely.' });
+});
+
 // GET /api/auth/me
 router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
   if (!req.user) {
     return res.status(401).json({ success: false, error: 'Unauthorized' });
   }
 
-  const u = req.user;
+  const u: any = req.user;
   const effectiveClassIds = await resolveEffectiveAssignedClassIds(u);
+  const biometricEnabled =
+    typeof u.biometricEnabled === 'boolean'
+      ? u.biometricEnabled
+      : Boolean(u.webauthnCredentials && u.webauthnCredentials.length > 0);
   return res.json({
     success: true,
     user: {
@@ -436,6 +465,7 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
       linkedStudentIds: u.linkedStudentIds,
       assignedClassIds: effectiveClassIds,
       mustChangePassword: Boolean(u.mustChangePassword),
+      biometricEnabled,
     },
   });
 });

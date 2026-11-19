@@ -5,7 +5,6 @@ import {
   Teacher,
   ClassBatch,
   HifzRecord,
-  Announcement,
   UserProfile,
   Campus,
 } from '../types';
@@ -33,7 +32,6 @@ interface AdminDashboardProps {
   teachers: Teacher[];
   classes: ClassBatch[];
   records: HifzRecord[];
-  announcements: Announcement[];
   currentUser: UserProfile;
   assignedCampus?: Campus;
   feedbackEnabled?: boolean;
@@ -50,7 +48,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   teachers,
   classes,
   records,
-  announcements,
   currentUser,
   assignedCampus,
   feedbackEnabled = true,
@@ -102,10 +99,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             )}
           </div>
-
-          <p className="text-xs text-emerald-100/80 max-w-xl font-medium leading-relaxed hidden sm:block">
-            Campus administration for {currentUser.fullName}. Manage your assigned campus students, Usthad faculty, classroom batches, attendance verification, and Hifz evaluations.
-          </p>
 
           {/* Quick Action Buttons */}
           <div className="pt-1 flex flex-wrap items-center gap-2">
@@ -223,20 +216,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             {totalCompletedJuz}
           </div>
           <div className="text-[10px] sm:text-[11px] text-amber-700 font-medium mt-0.5">
-            Campus cumulative milestone
+            Completed Juz
           </div>
         </div>
       </div>
 
-      {/* Organized Mudir Portal Menu (Modeled cleanly on Portal Menu Architecture) */}
+      {/* Campus Operations Menu */}
       <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 pb-2.5 border-b border-slate-100">
-          <div>
-            <h2 className="text-sm sm:text-base font-bold text-slate-900">Mudir Portal Menu</h2>
-            <p className="text-[11px] text-slate-500">
-              Organized campus operations, registry modules, feedback center & academic tools
-            </p>
-          </div>
+        <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
+          <h2 className="text-sm sm:text-base font-bold text-slate-900">Campus Menu</h2>
           <span className="text-[11px] font-mono text-emerald-800 font-semibold">
             {assignedCampus?.code || 'HYBA-MAIN'}
           </span>
@@ -378,12 +366,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
           <div className="flex items-center gap-2">
             <Layers className="w-4 h-4 text-emerald-700" />
-            <div>
-              <h2 className="text-sm font-bold text-slate-900">Batch Assignments & Faculty</h2>
-              <p className="text-[11px] text-slate-500">
-                Active batches in your campus and their assigned mentor (Usthad / Mudeer)
-              </p>
-            </div>
+            <h2 className="text-sm font-bold text-slate-900">Batch Assignments & Faculty</h2>
           </div>
           <button
             onClick={() => onNavigate('classes')}
@@ -434,10 +417,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* Left Column: Today's 5 Hours Sessions Status */}
         <div className="lg:col-span-1 bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-3.5">
           <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
-            <div>
-              <h2 className="text-sm font-bold text-slate-900">Today's Session Schedule</h2>
-              <div className="text-[11px] text-slate-500 font-medium">5 Mandatory Daily Hours</div>
-            </div>
+            <h2 className="text-sm font-bold text-slate-900">Daily Sessions (5 Hours)</h2>
             <button
               onClick={onOpenTimetable}
               className="text-xs text-emerald-700 font-bold hover:underline cursor-pointer"
@@ -469,10 +449,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
           <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs text-slate-600 space-y-1">
             <div className="flex justify-between font-medium">
-              <span>Active Session:</span>
-              <span className="font-bold text-amber-800">Hour 3 · Tajweed Clinic</span>
-            </div>
-            <div className="flex justify-between font-medium">
               <span>Campus:</span>
               <span className="text-slate-800 truncate max-w-[160px]">
                 {assignedCampus?.name || 'Main Campus'}
@@ -485,13 +461,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         </div>
 
-        {/* Right Column: Recent Activity & Announcements */}
+        {/* Right Column: Recent Hifz Activity */}
         <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-4">
           <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
-            <div>
-              <h2 className="text-sm font-bold text-slate-900">Recent Hifz Recitations & Grades</h2>
-              <p className="text-[11px] text-slate-500">Verified Sabq, Murajath and Manzil records</p>
-            </div>
+            <h2 className="text-sm font-bold text-slate-900">Recent Hifz Recitations</h2>
             <button
               onClick={() => onNavigate('hifz')}
               className="text-xs text-emerald-700 font-bold hover:underline cursor-pointer flex items-center gap-1"
@@ -503,7 +476,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
           <div className="space-y-2.5">
             {records.length > 0 ? (
-              records.slice(0, 3).map((rec) => {
+              records.slice(0, 5).map((rec) => {
                 const student = students.find((s) => s.id === rec.studentId);
                 return (
                   <div
@@ -544,9 +517,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             </span>
                           )}
                         </div>
-                        <div className="text-[10px] text-slate-500 italic mt-0.5 line-clamp-1">
-                          "{rec.teacherRemarks}"
-                        </div>
+                        {rec.teacherRemarks && (
+                          <div className="text-[10px] text-slate-500 italic mt-0.5 line-clamp-1">
+                            "{rec.teacherRemarks}"
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -567,33 +542,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               })
             ) : (
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 text-xs text-slate-500 text-center">
-                No Hifz recitation records logged for this campus yet. Click <strong>+ Record Hifz</strong> to add the first entry.
+                No Hifz records yet.
               </div>
             )}
-          </div>
-
-          {/* Institutional Noticeboard */}
-          <div className="pt-3 border-t border-slate-100">
-            <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-              Campus Announcements
-            </div>
-            <div className="space-y-2">
-              {announcements.length > 0 ? (
-                announcements.map((ann) => (
-                  <div key={ann.id} className="p-3 bg-amber-50/60 rounded-xl border border-amber-200/60 text-xs">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-bold text-slate-900 leading-snug">{ann.title}</span>
-                      <span className="text-[10px] text-slate-400 font-mono shrink-0">{ann.date}</span>
-                    </div>
-                    <p className="text-[11px] text-slate-600 mt-1 leading-normal">{ann.content}</p>
-                  </div>
-                ))
-              ) : (
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs text-slate-400 text-center">
-                  No announcements posted for this campus.
-                </div>
-              )}
-            </div>
           </div>
         </div>
       </div>

@@ -72,7 +72,7 @@ export const StudentDutyLeaveModal: React.FC<StudentDutyLeaveModalProps> = ({
               </div>
               <h3 className="text-base font-bold text-slate-900">Application Submitted!</h3>
               <p className="text-xs text-slate-500 max-w-sm">
-                Your duty leave request (#DL-2026-881) has been routed to <strong>Dr. Sreenivasan K.P.</strong> and the Head of Department for verified attendance adjustment.
+                Your duty leave request has been routed to your Assigned Usthad and Campus Mudeer.
               </p>
             </div>
           ) : (

@@ -559,9 +559,6 @@ export const FeedbackManagement: React.FC<FeedbackManagementProps> = ({
           <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight">
             Faculty Feedback Management
           </h1>
-          <p className="text-xs text-slate-500 max-w-2xl">
-            Configure required evaluation questions and answer formats, monitor faculty-wise and teacher-wise student responses, and dispatch summarized improvement reports to Usthad Faculty Portals.
-          </p>
         </div>
 
         {/* Master Toggle Button */}
@@ -817,9 +814,6 @@ export const FeedbackManagement: React.FC<FeedbackManagementProps> = ({
                 <h2 className="text-sm font-bold text-slate-900">
                   Configured Student Questionnaire ({questions.length} Questions)
                 </h2>
-                <p className="text-[11px] text-slate-500">
-                  Edit question prompts, answer types, required flags, or reorder sequence, then click Save.
-                </p>
               </div>
 
               <button

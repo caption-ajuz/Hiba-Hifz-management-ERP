@@ -7,7 +7,6 @@ import {
   Plus,
   Users,
   GraduationCap,
-  Layers,
   UserCheck,
   KeyRound,
   ArrowRight,
@@ -62,8 +61,8 @@ export const HybaSuperAdminPortal: React.FC<HybaSuperAdminPortalProps> = ({
             </div>
           </div>
 
-          <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
-            Signed in as <span className="font-mono font-bold text-white">{currentUser.username}</span>. Provision new HYBA campuses, appoint Campus Mudeers with dedicated credentials, and oversee institution-wide branch readiness from one central portal.
+          <p className="text-xs text-slate-300">
+            Signed in as <span className="font-mono font-bold text-white">{currentUser.username}</span>
           </p>
 
           <div className="pt-1 flex flex-wrap items-center gap-2.5">
@@ -183,11 +182,8 @@ export const HybaSuperAdminPortal: React.FC<HybaSuperAdminPortalProps> = ({
         <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-extrabold text-slate-900 tracking-tight">
-              Registered HYBA Campuses & Assigned Mudeers
+              Campuses & Assigned Mudeers
             </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Each Campus Mudeer administers only their assigned campus roster, faculty, and daily Hifz activities.
-            </p>
           </div>
           <button
             onClick={onOpenAddCampus}

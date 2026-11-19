@@ -5,6 +5,7 @@ import express from 'express';
 import http from 'http';
 import path from 'path';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import { fileURLToPath } from 'url';
 
 // Database & Services
@@ -34,13 +35,15 @@ const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
+  app.set('trust proxy', 1);
   const server = http.createServer(app);
 
   // Initialize Socket.IO
   initSocketIO(server);
 
   // Core Middlewares
-  app.use(cors());
+  app.use(cors({ origin: true, credentials: true }));
+  app.use(cookieParser());
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -118,11 +121,23 @@ async function startServer() {
     app.use('/src/assets/images', express.static(path.resolve(publicPath, 'assets', 'images')));
     app.use('/src/assets', express.static(path.resolve(publicPath, 'assets')));
 
+    // Ensure service worker and PWA manifest are never stale in browsers
+    app.get(['/sw.js', '/registerSW.js'], (_req, res, next) => {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Service-Worker-Allowed', '/');
+      next();
+    });
+    app.get(['/manifest.json', '/manifest.webmanifest'], (_req, res, next) => {
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Content-Type', 'application/manifest+json');
+      next();
+    });
+
     // General static middleware for dist (HTML, scripts, stylesheets)
     app.use(express.static(distPath));
 
     // Never return HTML index for missing image or media extensions (prevents broken image box)
-    app.get(/\.(jpg|jpeg|png|gif|svg|webp|ico|css|js|map)$/, (_req, res) => {
+    app.get(/\.(jpg|jpeg|png|gif|svg|webp|ico|css|js|map|webmanifest)$/, (_req, res) => {
       res.status(404).end();
     });
 

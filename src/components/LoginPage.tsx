@@ -16,19 +16,29 @@ import {
   KeyRound,
   X,
   Phone,
+  Fingerprint,
 } from 'lucide-react';
+import { PWAInstallButton } from './pwa/PWAInstallButton';
+import { authenticateWithBiometrics, detectBiometricLabel } from '../services/webauthn';
 
 interface LoginPageProps {
-  onLoginSuccess: (user: UserProfile) => void;
+  onLoginSuccess: (user: UserProfile, viaBiometric?: boolean) => void;
+  initialUsername?: string;
+  biometricQuickUser?: UserProfile | null;
 }
 
-export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
-  const [usernameInput, setUsernameInput] = useState<string>('mudir');
-  const [passwordInput, setPasswordInput] = useState<string>('password123');
+export const LoginPage: React.FC<LoginPageProps> = ({
+  onLoginSuccess,
+  initialUsername,
+  biometricQuickUser,
+}) => {
+  const [usernameInput, setUsernameInput] = useState<string>(initialUsername || 'mudir');
+  const [passwordInput, setPasswordInput] = useState<string>(initialUsername ? '' : 'password123');
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [rememberMe, setRememberMe] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [isBiometricLoading, setIsBiometricLoading] = useState<boolean>(false);
 
   // 3-Step Secure Forgot Password Modal state
   const [showForgotModal, setShowForgotModal] = useState<boolean>(false);
@@ -116,6 +126,20 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
       }
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleBiometricQuickLogin = async () => {
+    if (!biometricQuickUser) return;
+    setErrorMessage('');
+    setIsBiometricLoading(true);
+    try {
+      const result = await authenticateWithBiometrics({ userId: biometricQuickUser.id });
+      onLoginSuccess(result.user, true);
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Biometric verification failed. Please sign in with your password.');
+    } finally {
+      setIsBiometricLoading(false);
     }
   };
 
@@ -229,9 +253,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           )}
           <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-black/50 pointer-events-none"></div>
 
-          <div className="absolute top-4 left-4 z-10 flex items-center gap-2 bg-black/40 backdrop-blur-md px-3 py-1 rounded-full text-white text-xs border border-white/20">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span className="font-semibold tracking-wide">HYBA Campus Portal</span>
+          <div className="absolute top-4 left-4 right-4 z-10 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 bg-black/40 backdrop-blur-md px-3 py-1 rounded-full text-white text-xs border border-white/20">
+              <span className="font-semibold tracking-wide">Hyba Campus Portal</span>
+            </div>
+            <PWAInstallButton variant="login" />
           </div>
 
           <div className="absolute -bottom-1 left-0 right-0 h-6 bg-white rounded-t-3xl"></div>
@@ -352,7 +378,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
 
               <button
                 type="submit"
-                disabled={isSubmitting}
+                disabled={isSubmitting || isBiometricLoading}
                 className="w-full py-3 px-4 bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white font-bold text-sm rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-70"
               >
                 {isSubmitting ? (
@@ -364,6 +390,22 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                   </>
                 )}
               </button>
+
+              {biometricQuickUser && (
+                <button
+                  type="button"
+                  onClick={handleBiometricQuickLogin}
+                  disabled={isSubmitting || isBiometricLoading}
+                  className="w-full py-2.5 px-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-65"
+                >
+                  <Fingerprint className="w-4 h-4 text-emerald-700" />
+                  <span>
+                    {isBiometricLoading
+                      ? 'Waiting for Biometrics...'
+                      : `Unlock as ${biometricQuickUser.fullName} (${detectBiometricLabel().label})`}
+                  </span>
+                </button>
+              )}
 
               <div className="p-2.5 bg-slate-50 border border-slate-200/80 rounded-xl text-[11px] text-slate-600 space-y-0.5">
                 <div>
@@ -436,7 +478,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           </div>
 
           <div className="mt-4 pt-3 border-t border-slate-100 text-center text-[11px] text-slate-400">
-            Protected Role-Based Hifz Campus Management System · v1.0
+            HYBA Campus Management System
           </div>
         </div>
       </div>

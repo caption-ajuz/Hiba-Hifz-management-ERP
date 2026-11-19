@@ -99,24 +99,24 @@ export const StudentIdCardModal: React.FC<StudentIdCardModalProps> = ({
             {/* Details Table */}
             <div className="p-4 mx-4 my-3 bg-slate-50/80 rounded-xl border border-slate-200/80 text-xs space-y-1.5">
               <div className="flex justify-between py-0.5">
-                <span className="text-slate-400 font-medium">Register No</span>
-                <span className="text-slate-900 font-bold font-mono">KIAYSCH024</span>
+                <span className="text-slate-400 font-medium">Admission No</span>
+                <span className="text-slate-900 font-bold font-mono">{student.admissionNumber}</span>
               </div>
               <div className="flex justify-between py-0.5">
                 <span className="text-slate-400 font-medium">Department</span>
-                <span className="text-slate-900 font-semibold text-right">Chemistry (Aided) & Tahfeez</span>
+                <span className="text-slate-900 font-semibold text-right">Tahfeezul Quran Academy</span>
               </div>
               <div className="flex justify-between py-0.5">
-                <span className="text-slate-400 font-medium">Batch</span>
-                <span className="text-slate-900 font-semibold">2024 - 2027</span>
+                <span className="text-slate-400 font-medium">Academic Year</span>
+                <span className="text-slate-900 font-semibold">2026 - 2027</span>
               </div>
               <div className="flex justify-between py-0.5">
                 <span className="text-slate-400 font-medium">Roll No.</span>
-                <span className="text-slate-900 font-bold font-mono">#{student.rollNumber} (Adm: {student.admissionNumber})</span>
+                <span className="text-slate-900 font-bold font-mono">#{student.rollNumber}</span>
               </div>
               <div className="flex justify-between py-0.5">
                 <span className="text-slate-400 font-medium">Blood Group</span>
-                <span className="text-rose-600 font-bold font-mono">O +ve</span>
+                <span className="text-rose-600 font-bold font-mono">{student.bloodGroup || '—'}</span>
               </div>
               <div className="flex justify-between py-0.5">
                 <span className="text-slate-400 font-medium">Status</span>
@@ -137,7 +137,7 @@ export const StudentIdCardModal: React.FC<StudentIdCardModalProps> = ({
                 ))}
               </div>
               <span className="text-[9px] font-mono text-slate-400 mt-0.5">
-                *KIAY-2026-{student.admissionNumber}-CHEM*
+                *HYBA-2026-{student.admissionNumber}*
               </span>
             </div>
 

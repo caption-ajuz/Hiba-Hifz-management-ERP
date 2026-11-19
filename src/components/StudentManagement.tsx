@@ -684,18 +684,9 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
       {/* Top Header Card */}
       <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/90 p-4 sm:p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-700">
-            <GraduationCap className="w-3.5 h-3.5" />
-            <span>{isUsthad ? 'Usthad Mentorship Roster' : 'Academic Registry'}</span>
-          </div>
-          <h1 className="text-lg sm:text-2xl font-extrabold text-slate-900 tracking-tight mt-0.5">
-            {isUsthad ? 'My Students Directory' : 'Student Management & Profiles'}
+          <h1 className="text-lg sm:text-2xl font-extrabold text-slate-900 tracking-tight">
+            {isUsthad ? 'My Students' : 'Student Management'}
           </h1>
-          <p className="text-xs text-slate-500 mt-0.5 hidden sm:block">
-            {isUsthad
-              ? 'Manage students enrolled in your assigned Tahfeez classes, review progress, and update profiles.'
-              : 'Manage enrolled Hifz students in your assigned campus, import rosters, and generate student ID cards.'}
-          </p>
         </div>
 
         {/* Action Buttons */}
@@ -770,8 +761,8 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
                 {studentProfileEditEnabled
-                  ? 'Students can currently update their own profile photo, about bio, email, phone number, and personal details.'
-                  : 'Students cannot edit their own profiles. Turn ON to allow student self-editing from the Student Portal.'}
+                  ? 'Students can edit their own contact details and photo.'
+                  : 'Students cannot edit their own profile details.'}
               </p>
             </div>
           </div>
@@ -987,10 +978,10 @@ export const StudentManagement: React.FC<StudentManagementProps> = ({
                             <td className="py-3 px-4">
                               <span
                                 className={`font-bold font-mono ${
-                                  (std.attendanceRate || 95) >= 95 ? 'text-emerald-700' : 'text-amber-700'
+                                  (std.attendanceRate ?? 0) >= 75 ? 'text-emerald-700' : 'text-amber-700'
                                 }`}
                               >
-                                {std.attendanceRate || 95}%
+                                {std.attendanceRate ?? 0}%
                               </span>
                             </td>
                             <td className="py-3 px-4">

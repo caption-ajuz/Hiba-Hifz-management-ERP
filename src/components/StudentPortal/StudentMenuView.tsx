@@ -111,9 +111,6 @@ export const StudentMenuView: React.FC<StudentMenuViewProps> = ({
     <div className="max-w-2xl mx-auto px-3 sm:px-4 py-4 space-y-6 pb-28">
       <div className="px-1">
         <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">Student Services</h1>
-        <p className="text-xs text-slate-500 mt-0.5">
-          Focused academic tools, attendance, Quran tracker, events & student requests
-        </p>
       </div>
 
       {menuSections.map((section) => (

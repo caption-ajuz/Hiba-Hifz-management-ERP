@@ -6,7 +6,6 @@ import {
   ArrowRight,
   Megaphone,
   Calendar,
-  X,
   MapPin,
   MessageSquare,
 } from 'lucide-react';
@@ -84,7 +83,6 @@ export const StudentPortalHome: React.FC<StudentPortalHomeProps> = ({
   const displayAvatar = getStudentPhotoSrc(
     student?.photo || currentUser?.avatar || STUDENT_PROFILE_DATA.avatarUrl
   );
-  const [showCampusBanner, setShowCampusBanner] = useState<boolean>(true);
   const [semesterView, setSemesterView] = useState<number>(6);
   const [selectedScheduleDay, setSelectedScheduleDay] = useState<string>('D1');
 
@@ -221,13 +219,12 @@ export const StudentPortalHome: React.FC<StudentPortalHomeProps> = ({
   };
 
   const markedItems = attendanceItems.filter((item) => item.status !== 'NOT_MARKED');
-  const sem6LiveTotal = markedItems.length > 0 ? markedItems.length : 35.0;
-  const sem6LivePresent =
-    markedItems.length > 0
-      ? markedItems.filter((item) => item.status === 'PRESENT' || item.status === 'LATE').length
-      : 32.0;
+  const sem6LiveTotal = markedItems.length;
+  const sem6LivePresent = markedItems.filter(
+    (item) => item.status === 'PRESENT' || item.status === 'LATE'
+  ).length;
   const sem6LivePct =
-    markedItems.length > 0 ? (sem6LivePresent / sem6LiveTotal) * 100 : student?.attendanceRate ?? 91.4;
+    markedItems.length > 0 ? (sem6LivePresent / sem6LiveTotal) * 100 : student?.attendanceRate ?? 0;
 
   const semTotalHours = semesterView === 5 ? 66.0 : sem6LiveTotal;
   const semHoursPresent = semesterView === 5 ? 38.5 : sem6LivePresent;
@@ -305,33 +302,6 @@ export const StudentPortalHome: React.FC<StudentPortalHomeProps> = ({
           >
             Submit Now
           </button>
-        </div>
-      )}
-
-      {/* 2. CAMPUS PHOTO BANNER */}
-      {showCampusBanner && (
-        <div className="relative rounded-3xl overflow-hidden shadow-sm border border-slate-200 group animate-fade-in">
-          <img
-            src={STUDENT_PROFILE_DATA.campusPhotoUrl}
-            alt={STUDENT_PROFILE_DATA.collegeName}
-            className="w-full h-44 sm:h-52 object-cover transition-transform duration-700 group-hover:scale-102"
-            referrerPolicy="no-referrer"
-          />
-          <button
-            onClick={() => setShowCampusBanner(false)}
-            className="absolute top-3 right-3 w-7 h-7 rounded-full bg-black/40 hover:bg-black/60 text-white flex items-center justify-center transition-colors cursor-pointer backdrop-blur-xs"
-            title="Dismiss photo"
-          >
-            <X className="w-4 h-4" />
-          </button>
-          <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/85 via-black/40 to-transparent text-white">
-            <div className="text-xs sm:text-sm font-extrabold tracking-tight leading-snug">
-              {STUDENT_PROFILE_DATA.collegeName}
-            </div>
-            <div className="text-[10px] text-slate-300 font-medium">
-              Estd. 1994 · Kombam, Kodakkad, Mannarkkad, Palakkad
-            </div>
-          </div>
         </div>
       )}
 
@@ -428,12 +398,9 @@ export const StudentPortalHome: React.FC<StudentPortalHomeProps> = ({
             <Plus className="w-5 h-5 stroke-[2.5]" />
           </div>
           <div>
-            <span className="text-xs sm:text-sm text-slate-700">
-              Pin your <strong className="text-slate-900 font-extrabold">favorite tools</strong> here
+            <span className="text-xs sm:text-sm font-semibold text-slate-700">
+              Pin favorite shortcuts
             </span>
-            <div className="text-[11px] text-slate-400">
-              Quick launch attendance, Quran tracker, duty leave & virtual ID
-            </div>
           </div>
         </button>
 
@@ -469,9 +436,6 @@ export const StudentPortalHome: React.FC<StudentPortalHomeProps> = ({
             <h2 className="text-base font-bold text-slate-900 tracking-tight">
               Class Timetable
             </h2>
-            <p className="text-xs text-slate-500 font-medium">
-              Live campus schedule & assigned periods
-            </p>
           </div>
           <button
             onClick={onOpenTimetable}
@@ -624,10 +588,7 @@ export const StudentPortalHome: React.FC<StudentPortalHomeProps> = ({
               <Megaphone className="w-6 h-6" />
             </div>
             <div>
-              <div className="text-sm font-bold text-slate-900">Notice Board is Quiet Today</div>
-              <div className="text-xs text-slate-500 mt-0.5">
-                New campus circulars and updates will appear here automatically.
-              </div>
+              <div className="text-sm font-bold text-slate-900">No Active Notices</div>
             </div>
           </div>
         )}
@@ -696,10 +657,7 @@ export const StudentPortalHome: React.FC<StudentPortalHomeProps> = ({
               <Calendar className="w-6 h-6" />
             </div>
             <div>
-              <div className="text-sm font-bold text-slate-900">No Upcoming Events Listed</div>
-              <div className="text-xs text-slate-500 mt-0.5">
-                New college events published by the Mudir will appear here right away.
-              </div>
+              <div className="text-sm font-bold text-slate-900">No Upcoming Events</div>
             </div>
           </div>
         )}

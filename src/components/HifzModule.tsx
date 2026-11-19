@@ -11,16 +11,7 @@ import {
   BookOpen,
   Sparkles,
   Search,
-  Filter,
-  CheckCircle,
-  AlertCircle,
-  Calendar,
-  User,
   Plus,
-  Bookmark,
-  Award,
-  ChevronRight,
-  RefreshCw,
 } from 'lucide-react';
 
 interface HifzModuleProps {
@@ -102,16 +93,9 @@ export const HifzModule: React.FC<HifzModuleProps> = ({
       {/* Top Header Card */}
       <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/90 p-4 sm:p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-700">
-            <BookOpen className="w-3.5 h-3.5" />
-            <span>Hifz Learning Management</span>
-          </div>
-          <h1 className="text-lg sm:text-2xl font-extrabold text-slate-900 tracking-tight mt-0.5">
+          <h1 className="text-lg sm:text-2xl font-extrabold text-slate-900 tracking-tight">
             Sabq, Murajath & Manzil Log
           </h1>
-          <p className="text-xs text-slate-500 mt-0.5 hidden sm:block">
-            Track daily new memorization portions, recent revisions, and full Juz retention milestones.
-          </p>
         </div>
 
         {(currentUser.role === 'MUDEER' || currentUser.role === 'USTHAD') && (
@@ -252,7 +236,7 @@ export const HifzModule: React.FC<HifzModuleProps> = ({
                 if (isCompleted) {
                   cardStyle = 'bg-emerald-600 border-emerald-700 text-white shadow-xs';
                 } else if (isCurrent) {
-                  cardStyle = 'bg-amber-500 border-amber-600 text-white shadow-xs animate-pulse';
+                  cardStyle = 'bg-amber-500 border-amber-600 text-white shadow-xs';
                 }
 
                 return (

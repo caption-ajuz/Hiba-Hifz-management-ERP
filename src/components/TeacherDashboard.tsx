@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { INSTITUTION_INFO } from '../data/mockData';
 import { Student, ClassBatch, HifzRecord, UserProfile, TeacherFeedbackReport } from '../types';
 import { getUsthadEffectiveClassIds, sortBatchesWithPriority } from '../utils/batchUtils';
@@ -36,10 +36,15 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   onNavigate,
 }) => {
   // Dynamically resolved assigned batches and students
-  const assignedBatchIds = getUsthadEffectiveClassIds(currentUser, classes);
-  const assignedBatches = sortBatchesWithPriority(
-    classes.filter((c) => assignedBatchIds.includes(c.id))
+  const assignedBatchIds = useMemo(
+    () => getUsthadEffectiveClassIds(currentUser, classes),
+    [currentUser, classes]
   );
+  const assignedBatches = useMemo(
+    () => sortBatchesWithPriority(classes.filter((c) => assignedBatchIds.includes(c.id))),
+    [classes, assignedBatchIds]
+  );
+  const primaryBatchId = assignedBatches[0]?.id || '';
   const assignedBatchLabel =
     assignedBatches.length > 0
       ? assignedBatches.map((b) => b.name.split('(')[0].trim()).join(' & ')
@@ -63,11 +68,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [todayMarkedHours, setTodayMarkedHours] = useState<number[]>([]);
   const [todayAttendanceRate, setTodayAttendanceRate] = useState<number | null>(null);
 
-  const loadTodayAttendanceSummary = React.useCallback(async () => {
-    const primaryBatchId = assignedBatches[0]?.id;
+  const loadTodayAttendanceSummary = useCallback(async () => {
     if (!primaryBatchId) {
-      setTodayMarkedHours([]);
-      setTodayAttendanceRate(null);
+      setTodayMarkedHours((prev) => (prev.length === 0 ? prev : []));
+      setTodayAttendanceRate((prev) => (prev === null ? prev : null));
       return;
     }
 
@@ -93,14 +97,17 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         }
       });
 
-      setTodayMarkedHours(markedHrs);
-      setTodayAttendanceRate(
-        totalMarked > 0 ? Math.round((totalPresent / totalMarked) * 100) : null
+      const nextRate = totalMarked > 0 ? Math.round((totalPresent / totalMarked) * 100) : null;
+      setTodayMarkedHours((prev) =>
+        prev.length === markedHrs.length && prev.every((v, i) => v === markedHrs[i])
+          ? prev
+          : markedHrs
       );
+      setTodayAttendanceRate((prev) => (prev === nextRate ? prev : nextRate));
     } catch {
       // ignore summary fetch error
     }
-  }, [assignedBatches, todayIso]);
+  }, [primaryBatchId, todayIso]);
 
   useEffect(() => {
     void loadTodayAttendanceSummary();
@@ -129,6 +136,12 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [feedbackReports, setFeedbackReports] = useState<TeacherFeedbackReport[]>([]);
   const [loadingReports, setLoadingReports] = useState<boolean>(true);
 
+  const assignedBatchIdsRef = useRef<string[]>(assignedBatchIds);
+  assignedBatchIdsRef.current = assignedBatchIds;
+
+  const loadTodayAttendanceSummaryRef = useRef(loadTodayAttendanceSummary);
+  loadTodayAttendanceSummaryRef.current = loadTodayAttendanceSummary;
+
   useEffect(() => {
     let active = true;
     const loadReports = async () => {
@@ -147,8 +160,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
     const unsubscribe = subscribeToRealtimeEvents({
       onAttendanceUpdated: (data: any) => {
-        if (data?.date === todayIso && assignedBatchIds.includes(data?.classId)) {
-          void loadTodayAttendanceSummary();
+        if (data?.date === todayIso && assignedBatchIdsRef.current.includes(data?.classId)) {
+          void loadTodayAttendanceSummaryRef.current();
         }
       },
       onFeedbackReportUpdated: (report: TeacherFeedbackReport) => {
@@ -168,7 +181,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       active = false;
       unsubscribe();
     };
-  }, [currentUser.id, currentUser.referenceId, todayIso, assignedBatchIds, loadTodayAttendanceSummary]);
+  }, [currentUser.id, currentUser.referenceId, todayIso]);
 
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6 pb-20">
@@ -276,17 +289,20 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               <AlertTriangle className="w-4 h-4 text-amber-600" />
               <h2 className="text-sm font-bold text-slate-900">Follow-up Revisions</h2>
             </div>
-            <span className="text-[10px] font-semibold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">
-              Attention Required
-            </span>
+            {studentsNeedingRevision.length > 0 && (
+              <span className="text-xs font-mono font-bold text-amber-700 tabular-nums">
+                {studentsNeedingRevision.length}
+              </span>
+            )}
           </div>
 
-          <p className="text-xs text-slate-500 leading-normal">
-            Students who stumbled during today’s Sabq or Murajath and require repeat testing:
-          </p>
-
           <div className="space-y-2.5">
-            {studentsNeedingRevision.map((std) => (
+            {studentsNeedingRevision.length === 0 ? (
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-500 text-center">
+                No revision follow-ups pending.
+              </div>
+            ) : (
+              studentsNeedingRevision.map((std) => (
               <div
                 key={std.id}
                 className="p-3 bg-amber-50/70 rounded-xl border border-amber-200/80 flex items-center justify-between gap-3 text-xs"
@@ -314,7 +330,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   Retest
                 </button>
               </div>
-            ))}
+              ))
+            )}
           </div>
 
           <div className="pt-2 border-t border-slate-100">
@@ -333,9 +350,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div>
               <h2 className="text-sm font-bold text-slate-900">
-                My Students Roster ({assignedBatchLabel})
+                My Students ({assignedBatchLabel})
               </h2>
-              <p className="text-xs text-slate-500">Active students in your assigned Tahfeez batches</p>
             </div>
             <button
               onClick={() => onNavigate('students')}
@@ -409,9 +425,6 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               <h2 className="text-sm sm:text-base font-bold text-slate-900">
                 Mudir Feedback Summary & Suggestions
               </h2>
-              <p className="text-xs text-slate-500">
-                Summarized student evaluation report and guidance shared by the Campus Mudir
-              </p>
             </div>
           </div>
           <span className="text-xs font-mono font-semibold text-slate-500 tabular-nums">
@@ -421,11 +434,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
         {loadingReports ? (
           <div className="py-6 text-center text-xs text-slate-400">
-            Loading Mudir feedback summary...
+            Loading feedback reports...
           </div>
         ) : feedbackReports.length === 0 ? (
           <div className="p-5 rounded-xl bg-slate-50 border border-dashed border-slate-200 text-xs text-slate-500 text-center">
-            No summarized feedback report has been sent by the Mudir yet for this term. Once the Mudir reviews student responses and publishes a report, it will appear here.
+            No feedback reports published by the Mudir yet.
           </div>
         ) : (
           <div className="space-y-3">

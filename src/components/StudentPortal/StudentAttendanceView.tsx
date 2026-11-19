@@ -255,7 +255,7 @@ export const StudentAttendanceView: React.FC<StudentAttendanceViewProps> = ({
             : hourNum === 4
             ? '02:00 PM - 04:00 PM'
             : '04:30 PM - 05:30 PM',
-        subjectCode: liveItem ? 'HIFZ501' : hourNum === 5 ? 'HIFZ501' : `CHE5CJ30${hourNum}`,
+        subjectCode: liveItem ? 'HIFZ501' : `HIFZ50${hourNum}`,
         subjectName:
           liveItem?.sessionName ||
           (hourNum === 1
@@ -269,7 +269,7 @@ export const StudentAttendanceView: React.FC<StudentAttendanceViewProps> = ({
             : 'Tahfeezul Quran & Testing'),
         faculty:
           liveItem?.markedByName ||
-          (hourNum === 3 ? 'FAUSIA K H' : hourNum === 5 ? 'Usthad Mohammed Ajash T' : 'Dr. Sreenivasan K.P'),
+          (hourNum === 5 ? 'Usthad Mohammed Ajash T' : 'Assigned Usthad'),
         room: 'Tahfeez Chamber',
         status: liveItem?.status || status,
         topic:
@@ -351,7 +351,7 @@ export const StudentAttendanceView: React.FC<StudentAttendanceViewProps> = ({
           <div>
             <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">Attendance</h1>
             <p className="text-[11px] text-slate-500">
-              Department of Chemistry · Calicut University & Tahfeez
+              Tahfeezul Quran & Islamic Studies
             </p>
           </div>
         </div>
@@ -418,7 +418,7 @@ export const StudentAttendanceView: React.FC<StudentAttendanceViewProps> = ({
             </button>
           </div>
           <p className="text-xs text-indigo-100">
-            Set your target percentage to see how many classes you must attend to maintain university exam eligibility:
+            Target percentage for attendance eligibility:
           </p>
           <div className="flex items-center gap-4 pt-1">
             <span className="text-xs font-bold text-indigo-200">Eligibility Target:</span>
@@ -643,9 +643,6 @@ export const StudentAttendanceView: React.FC<StudentAttendanceViewProps> = ({
                 <Ban className="w-3.5 h-3.5 text-indigo-400" /> Unmarked
               </span>
             </div>
-            <p className="text-[10px] text-slate-400 text-center pt-1">
-              Tap any icon to view class subject, room, teacher, or submit a duty-leave correction.
-            </p>
           </div>
         </div>
       )}
@@ -708,7 +705,7 @@ export const StudentAttendanceView: React.FC<StudentAttendanceViewProps> = ({
 
                 {selectedSemester === 5 && (
                   <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-900 text-center font-medium max-w-sm">
-                    Shortage Alert: Attendance is currently 58.3%. Minimum requirement for University Exam hall ticket eligibility is 75.0%.
+                    Attendance is 58.3% (minimum target: 75.0%).
                   </div>
                 )}
               </div>

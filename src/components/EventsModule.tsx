@@ -241,16 +241,9 @@ export const EventsModule: React.FC<EventsModuleProps> = ({
       {/* Top Banner */}
       <div className="bg-gradient-to-r from-emerald-950 via-teal-950 to-emerald-900 text-white rounded-2xl sm:rounded-3xl p-5 sm:p-7 shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-300">
-            <Calendar className="w-3.5 h-3.5" />
-            <span>Academic Programs & College Events</span>
-          </div>
-          <h1 className="text-lg sm:text-2xl font-extrabold text-white mt-1">
-            College Events, Majlis & Calendars
+          <h1 className="text-lg sm:text-2xl font-extrabold text-white">
+            College Events & Calendars
           </h1>
-          <p className="text-xs text-emerald-200/90 mt-0.5">
-            Markazul Hidayathil Islamiyya · Schedule ceremonies, competitions, exams, and upload official event posters.
-          </p>
         </div>
 
         {canManageEvents && (

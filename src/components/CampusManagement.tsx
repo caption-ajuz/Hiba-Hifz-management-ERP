@@ -395,16 +395,9 @@ export const CampusManagement: React.FC<CampusManagementProps> = ({
       {/* Header Banner */}
       <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/90 p-4 sm:p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-700">
-            <Building2 className="w-3.5 h-3.5" />
-            <span>HYBA Platform Administration</span>
-          </div>
-          <h1 className="text-lg sm:text-2xl font-extrabold text-slate-900 tracking-tight mt-0.5">
+          <h1 className="text-lg sm:text-2xl font-extrabold text-slate-900 tracking-tight">
             Campus & Mudeer Registry
           </h1>
-          <p className="text-xs text-slate-500 mt-0.5 hidden sm:block">
-            Register HYBA branches, select a Campus Mudeer for each branch, and manage Mudeer login credentials.
-          </p>
         </div>
 
         {isHybaSuperAdmin && (

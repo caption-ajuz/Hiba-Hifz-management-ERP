@@ -1,15 +1,8 @@
 import React, { useState } from 'react';
-import { Student, HifzRecord, AttendanceSession, ClassBatch } from '../types';
+import { Student, HifzRecord, ClassBatch } from '../types';
 import {
-  FileText,
   Download,
   Printer,
-  TrendingUp,
-  Award,
-  CheckCircle2,
-  Calendar,
-  Users,
-  BookOpen,
 } from 'lucide-react';
 
 interface ReportsModuleProps {
@@ -36,10 +29,6 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({
     students.length > 0
       ? (students.reduce((acc, s) => acc + (s.attendanceRate || 0), 0) / students.length).toFixed(1)
       : '0.0';
-
-  const topStudents = [...students].sort(
-    (a, b) => b.completedJuzList.length - a.completedJuzList.length
-  ).slice(0, 5);
 
   const handleExportCSV = () => {
     let csvContent = 'data:text/csv;charset=utf-8,';
@@ -69,16 +58,9 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({
       {/* Header */}
       <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/90 p-4 sm:p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-700">
-            <FileText className="w-3.5 h-3.5" />
-            <span>Institutional Analytics & Audits</span>
-          </div>
-          <h1 className="text-lg sm:text-2xl font-extrabold text-slate-900 tracking-tight mt-0.5">
+          <h1 className="text-lg sm:text-2xl font-extrabold text-slate-900 tracking-tight">
             Reports & Progress Ledger
           </h1>
-          <p className="text-xs text-slate-500 mt-0.5 hidden sm:block">
-            Generate and export comprehensive attendance sheets and Hifz retention records.
-          </p>
         </div>
 
         <div className="flex items-center gap-2 self-start md:self-auto">
@@ -194,9 +176,9 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({
                   </>
                 ) : (
                   <>
-                    <th className="py-3 px-4 font-semibold">Present Days</th>
-                    <th className="py-3 px-4 font-semibold">Absent Days</th>
-                    <th className="py-3 px-4 font-semibold">Late Days</th>
+                    <th className="py-3 px-4 font-semibold">Batch</th>
+                    <th className="py-3 px-4 font-semibold">Current Juz</th>
+                    <th className="py-3 px-4 font-semibold">Account Status</th>
                   </>
                 )}
                 <th className="py-3 px-4 font-semibold text-right">Attendance %</th>
@@ -206,6 +188,7 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({
               {classStudents.map((std) => {
                 const completedCount = std.completedJuzList.length;
                 const percentage = Math.round((completedCount / 30) * 100);
+                const batchName = classes.find((c) => c.id === std.classId)?.name || 'Unassigned';
 
                 return (
                   <tr key={std.id} className="hover:bg-slate-50/70">
@@ -233,13 +216,17 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({
                       </>
                     ) : (
                       <>
-                        <td className="py-3 px-4 font-mono text-emerald-700 font-bold">24</td>
-                        <td className="py-3 px-4 font-mono text-rose-700 font-bold">1</td>
-                        <td className="py-3 px-4 font-mono text-amber-700 font-bold">1</td>
+                        <td className="py-3 px-4 text-slate-700 font-medium">{batchName}</td>
+                        <td className="py-3 px-4 font-semibold text-emerald-800">Juz {std.currentJuz}</td>
+                        <td className="py-3 px-4">
+                          <span className="text-[11px] font-semibold text-slate-700">
+                            {std.accountStatus || 'ACTIVE'}
+                          </span>
+                        </td>
                       </>
                     )}
                     <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">
-                      {std.attendanceRate}%
+                      {std.attendanceRate ?? 0}%
                     </td>
                   </tr>
                 );

@@ -745,7 +745,6 @@ export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
                 </div>
                 <div>
                   <div className="text-sm font-bold text-slate-900">About Campus Portal</div>
-                  <div className="text-[11px] text-slate-500">Version 2.4.0 (Build 2026.11)</div>
                 </div>
               </div>
               <button
@@ -758,18 +757,11 @@ export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
             <div className="p-5 space-y-3 text-xs text-slate-600 leading-relaxed">
               <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 space-y-1 text-center">
                 <div className="font-extrabold text-sm text-slate-900">{STUDENT_PROFILE_DATA.collegeName}</div>
-                <div className="text-[11px] text-slate-500">Established 1994 · Affiliated to Markaz Board</div>
-                <div className="text-[10px] text-emerald-700 font-semibold pt-1">
-                  Kombam, Kodakkad (P.O), Mannarkkad, Palakkad
-                </div>
+                <div className="text-[11px] text-slate-500">Established 1994 · Kombam, Palakkad</div>
               </div>
               <p>
-                This student ERP portal provides seamless access to semester attendance, continuous evaluation, Quran memorization tracking, timetable bell schedules, and digital identity passes.
+                Access attendance records, Quran memorization progress, class schedules, and student ID details.
               </p>
-              <div className="text-[11px] text-slate-400 pt-2 border-t border-slate-100 flex justify-between">
-                <span>Technical Support: IT Cell</span>
-                <span>helpdesk@markazulhidaya.edu.in</span>
-              </div>
             </div>
             <div className="p-3 bg-slate-50 border-t border-slate-100 flex justify-end">
               <button
