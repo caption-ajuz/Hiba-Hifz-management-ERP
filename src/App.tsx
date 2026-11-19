@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import {
   MOCK_USERS,
   MOCK_STUDENTS,
@@ -31,7 +31,6 @@ import {
   MyFeedbackStatusResponse,
 } from './types';
 import { api, getAuthToken, removeAuthToken } from './services/api';
-import { subscribeToRealtimeEvents } from './services/socket';
 import {
   loadEncryptedSession,
   saveEncryptedSession,
@@ -44,44 +43,54 @@ import {
 import { subscribeToBackgroundRefresh } from './services/offlineSync';
 import { checkPlatformBiometricSupport } from './services/webauthn';
 
-// Components
-import { Navbar } from './components/Navbar';
+// Eager lightweight shell & login components (instant first paint)
 import { LoginPage } from './components/LoginPage';
-import { HybaSuperAdminPortal } from './components/HybaSuperAdminPortal';
-import { AdminDashboard } from './components/AdminDashboard';
-import { TeacherDashboard } from './components/TeacherDashboard';
-import { StudentDashboard } from './components/StudentDashboard';
-import { ParentDashboard } from './components/ParentDashboard';
-import { AttendanceModule } from './components/AttendanceModule';
-import { HifzModule } from './components/HifzModule';
-import { StudentManagement } from './components/StudentManagement';
-import { TeacherManagement } from './components/TeacherManagement';
-import { ClassManagement } from './components/ClassManagement';
-import { CampusManagement } from './components/CampusManagement';
-import { ReportsModule } from './components/ReportsModule';
-import { EventsModule } from './components/EventsModule';
-import { FeedbackManagement } from './components/FeedbackManagement';
-
-// Modals
-import { AddHifzRecordModal } from './components/AddHifzRecordModal';
-import { StudentIdCardModal } from './components/StudentIdCardModal';
-import { TimetableModal } from './components/TimetableModal';
-import { FeedbackModal } from './components/FeedbackModal';
-import { ChangePasswordModal } from './components/ChangePasswordModal';
-
-// PWA & Biometric Components
 import { AppBootSkeleton, DashboardSkeleton } from './components/pwa/SkeletonLoaders';
-import { BiometricLockScreen } from './components/pwa/BiometricLockScreen';
-import { BiometricEnrollModal } from './components/pwa/BiometricEnrollModal';
-import { DeviceAndSecurityModal } from './components/pwa/DeviceAndSecurityModal';
 import { OfflineSyncIndicator } from './components/pwa/OfflineSyncIndicator';
 import { PWAInstallBanner } from './components/pwa/PWAInstallButton';
+
+// Helper for type-safe lazy loading of named component exports
+const lazyNamed = <T extends Record<string, any>, K extends keyof T>(
+  loader: () => Promise<T>,
+  key: K
+): React.LazyExoticComponent<T[K]> =>
+  React.lazy(() => loader().then((mod) => ({ default: mod[key] })));
+
+// Lazy-loaded Portals & Feature Modules (split into small on-demand chunks)
+const Navbar = lazyNamed(() => import('./components/Navbar'), 'Navbar');
+const HybaSuperAdminPortal = lazyNamed(() => import('./components/HybaSuperAdminPortal'), 'HybaSuperAdminPortal');
+const AdminDashboard = lazyNamed(() => import('./components/AdminDashboard'), 'AdminDashboard');
+const TeacherDashboard = lazyNamed(() => import('./components/TeacherDashboard'), 'TeacherDashboard');
+const StudentDashboard = lazyNamed(() => import('./components/StudentDashboard'), 'StudentDashboard');
+const ParentDashboard = lazyNamed(() => import('./components/ParentDashboard'), 'ParentDashboard');
+const AttendanceModule = lazyNamed(() => import('./components/AttendanceModule'), 'AttendanceModule');
+const HifzModule = lazyNamed(() => import('./components/HifzModule'), 'HifzModule');
+const StudentManagement = lazyNamed(() => import('./components/StudentManagement'), 'StudentManagement');
+const TeacherManagement = lazyNamed(() => import('./components/TeacherManagement'), 'TeacherManagement');
+const ClassManagement = lazyNamed(() => import('./components/ClassManagement'), 'ClassManagement');
+const CampusManagement = lazyNamed(() => import('./components/CampusManagement'), 'CampusManagement');
+const ReportsModule = lazyNamed(() => import('./components/ReportsModule'), 'ReportsModule');
+const EventsModule = lazyNamed(() => import('./components/EventsModule'), 'EventsModule');
+const FeedbackManagement = lazyNamed(() => import('./components/FeedbackManagement'), 'FeedbackManagement');
+
+// Lazy-loaded Modals (only downloaded when opened)
+const AddHifzRecordModal = lazyNamed(() => import('./components/AddHifzRecordModal'), 'AddHifzRecordModal');
+const StudentIdCardModal = lazyNamed(() => import('./components/StudentIdCardModal'), 'StudentIdCardModal');
+const TimetableModal = lazyNamed(() => import('./components/TimetableModal'), 'TimetableModal');
+const FeedbackModal = lazyNamed(() => import('./components/FeedbackModal'), 'FeedbackModal');
+const ChangePasswordModal = lazyNamed(() => import('./components/ChangePasswordModal'), 'ChangePasswordModal');
+const BiometricLockScreen = lazyNamed(() => import('./components/pwa/BiometricLockScreen'), 'BiometricLockScreen');
+const BiometricEnrollModal = lazyNamed(() => import('./components/pwa/BiometricEnrollModal'), 'BiometricEnrollModal');
+const DeviceAndSecurityModal = lazyNamed(() => import('./components/pwa/DeviceAndSecurityModal'), 'DeviceAndSecurityModal');
 
 type AuthPhase = 'booting' | 'biometric_lock' | 'unauthenticated' | 'authenticated';
 
 export default function App() {
   const [authPhase, setAuthPhase] = useState<AuthPhase>('booting');
   const isAuthenticated = authPhase === 'authenticated';
+  const authPhaseRef = useRef<AuthPhase>(authPhase);
+  authPhaseRef.current = authPhase;
+  const skipNextAuthVerifyRef = useRef<boolean>(false);
 
   const [currentUser, setCurrentUser] = useState<UserProfile>(() => {
     const savedId = localStorage.getItem('hyba_auth_user_id');
@@ -162,9 +171,34 @@ export default function App() {
     return true;
   };
 
-  // Boot: Instant Persistent Session Restore + Auto-Biometric Lock Detection
+  // Boot: Instant Persistent Session Restore + Non-blocking First-Visit Login
   useEffect(() => {
     let active = true;
+
+    async function applyRestoredServerUser(serverUser: UserProfile) {
+      if (!active) return;
+      skipNextAuthVerifyRef.current = true;
+      setCurrentUser(serverUser);
+      const restoredTab =
+        localStorage.getItem(`hyba_active_tab_${serverUser.id}`) || 'dashboard';
+      setCurrentTab(restoredTab);
+      localStorage.setItem('hyba_auth_user_id', serverUser.id);
+      saveEncryptedSession({
+        user: serverUser,
+        biometricLockEnabled: Boolean(serverUser.biometricEnabled),
+        lastActiveTab: restoredTab,
+        updatedAt: Date.now(),
+      }).catch(() => {});
+      await hydrateFromLocalCache(serverUser.id, serverUser.campusId);
+      if (!active) return;
+
+      if (serverUser.biometricEnabled) {
+        setLockedUser(serverUser);
+        setAuthPhase('biometric_lock');
+        return;
+      }
+      setAuthPhase('authenticated');
+    }
 
     async function bootSession() {
       // 1. Check encrypted IndexedDB session first (instant, works offline)
@@ -185,7 +219,6 @@ export default function App() {
         await hydrateFromLocalCache(cachedUser.id, cachedUser.campusId);
         if (!active) return;
 
-        // If Biometric Lock is enabled for this session, bypass password screen & auto-trigger Fingerprint/Face Unlock
         if (savedSession.biometricLockEnabled) {
           setLockedUser(cachedUser);
           setAuthPhase('biometric_lock');
@@ -196,38 +229,35 @@ export default function App() {
         return;
       }
 
-      // 2. Fallback: Check persistent HttpOnly session cookie or legacy localStorage token
+      // 2. Check if there are any local hints of an existing session
       const legacyUserId = localStorage.getItem('hyba_auth_user_id');
       const hasToken = Boolean(getAuthToken());
 
+      if (!legacyUserId && !hasToken) {
+        // Cold / logged-out visitor: show LoginPage IMMEDIATELY instead of blocking on server cold start
+        setAuthPhase('unauthenticated');
+        // Quietly check in background if an HttpOnly cookie session is active
+        api
+          .getCurrentUser(3500)
+          .then((serverUser) => {
+            if (active && serverUser && authPhaseRef.current === 'unauthenticated') {
+              applyRestoredServerUser(serverUser);
+            }
+          })
+          .catch(() => {});
+        return;
+      }
+
+      // 3. Returning session with local token: verify with short timeout so boot never hangs
       try {
-        const serverUser = await api.getCurrentUser();
+        const serverUser = await api.getCurrentUser(4000);
         if (!active) return;
         if (serverUser) {
-          setCurrentUser(serverUser);
-          const restoredTab =
-            localStorage.getItem(`hyba_active_tab_${serverUser.id}`) || 'dashboard';
-          setCurrentTab(restoredTab);
-          localStorage.setItem('hyba_auth_user_id', serverUser.id);
-          await saveEncryptedSession({
-            user: serverUser,
-            biometricLockEnabled: Boolean(serverUser.biometricEnabled),
-            lastActiveTab: restoredTab,
-            updatedAt: Date.now(),
-          });
-          await hydrateFromLocalCache(serverUser.id, serverUser.campusId);
-          if (!active) return;
-
-          if (serverUser.biometricEnabled) {
-            setLockedUser(serverUser);
-            setAuthPhase('biometric_lock');
-            return;
-          }
-          setAuthPhase('authenticated');
+          await applyRestoredServerUser(serverUser);
           return;
         }
       } catch {
-        // Offline or unauthenticated
+        // Offline or server waking up
       }
 
       if (!active) return;
@@ -258,7 +288,12 @@ export default function App() {
 
   // Sync authenticated session & load scoped data whenever user/role/campus changes
   useEffect(() => {
+    if (!isAuthenticated) {
+      return;
+    }
+
     let isMounted = true;
+    let unsubscribeRealtime: (() => void) | null = null;
 
     async function fetchAppData() {
       // Show smooth skeleton only on cold uncached first load
@@ -271,124 +306,142 @@ export default function App() {
         let resolvedRole = currentUser.role;
         let resolvedCampusId = currentUser.campusId;
         let resolvedUserId = currentUser.id;
+        const shouldVerifySession = !skipNextAuthVerifyRef.current;
+        skipNextAuthVerifyRef.current = false;
 
-        try {
-          const me = await api.getCurrentUser();
-          if (isMounted && me) {
-            resolvedRole = me.role;
-            resolvedCampusId = me.campusId;
-            resolvedUserId = me.id;
-            setCurrentUser((prev) => {
-              const sameClasses =
-                JSON.stringify(prev.assignedClassIds || []) ===
-                JSON.stringify(me.assignedClassIds || []);
-              const sameLinked =
-                JSON.stringify(prev.linkedStudentIds || []) ===
-                JSON.stringify(me.linkedStudentIds || []);
-              if (
-                prev.id === me.id &&
-                prev.role === me.role &&
-                prev.campusId === me.campusId &&
-                prev.studentId === me.studentId &&
-                prev.mustChangePassword === me.mustChangePassword &&
-                prev.biometricEnabled === me.biometricEnabled &&
-                prev.email === me.email &&
-                prev.phone === me.phone &&
-                prev.avatar === me.avatar &&
-                sameClasses &&
-                sameLinked
-              ) {
-                return prev;
-              }
-              return me;
-            });
-            localStorage.setItem('hyba_auth_user_id', me.id);
-            updateEncryptedSessionPatch({ user: me }).catch(() => {});
-          }
-        } catch (authErr: any) {
-          if (authErr?.status === 401 && navigator.onLine) {
-            removeAuthToken();
-            localStorage.removeItem('hyba_auth_user_id');
-            await clearEncryptedSession();
-            if (isMounted) setAuthPhase('unauthenticated');
-            return;
-          }
-        }
+        // Run session verification in parallel with Priority 1 data instead of blocking sequentially
+        const verifySessionPromise = shouldVerifySession
+          ? api
+              .getCurrentUser()
+              .then((me) => ({ ok: true as const, me }))
+              .catch((authErr: any) => ({ ok: false as const, authErr }))
+          : Promise.resolve({ ok: true as const, me: null });
 
-        const [
-          loadedStudents,
-          loadedTeachers,
-          loadedClasses,
-          loadedHifz,
-          loadedEvals,
-          loadedAnnouncements,
-          loadedCampuses,
-          loadedEvents,
-          loadedTimetable,
-          loadedFeedbackCfg,
-          loadedProfileEditPerm,
-        ] = await Promise.all([
+        // Priority 1: Core dashboard data needed for immediate render
+        const corePromise = Promise.all([
           api.getStudents(),
           api.getTeachers(),
           api.getClasses(),
           api.getHifzRecords(),
-          api.getEvaluations(),
-          api.getAnnouncements(),
           api.getCampuses(),
+          resolvedRole === 'STUDENT' ? api.getMyFeedbackStatus().catch(() => null) : Promise.resolve(null),
+        ]);
+
+        // Priority 2: Secondary data fetched concurrently in background (never blocks initial render)
+        const secondaryPromise = Promise.all([
+          api.getEvaluations().catch(() => null),
+          api.getAnnouncements().catch(() => null),
           api.getEvents().catch(() => []),
           api.getTimetable().catch(() => []),
           api.getFeedbackConfig().catch(() => null),
           api.getStudentProfileEditPermission().catch(() => null),
         ]);
 
-        let resolvedAllowEdit = allowStudentProfileEdit;
+        const [
+          authResult,
+          [loadedStudents, loadedTeachers, loadedClasses, loadedHifz, loadedCampuses, initialStudentFeedback],
+        ] = await Promise.all([verifySessionPromise, corePromise]);
 
-        if (isMounted) {
-          if (Array.isArray(loadedStudents)) setStudents(loadedStudents);
-          if (Array.isArray(loadedTeachers)) setTeachers(loadedTeachers);
-          if (Array.isArray(loadedClasses)) setClasses(loadedClasses);
-          if (Array.isArray(loadedHifz)) setHifzRecords(loadedHifz);
-          if (Array.isArray(loadedEvals)) setEvaluations(loadedEvals);
-          if (Array.isArray(loadedAnnouncements)) setAnnouncements(loadedAnnouncements);
-          if (Array.isArray(loadedCampuses)) setCampuses(loadedCampuses);
-          if (Array.isArray(loadedEvents)) setEvents(loadedEvents);
-          if (Array.isArray(loadedTimetable)) setTimetableSlots(loadedTimetable);
-          if (loadedFeedbackCfg) setFeedbackConfig(loadedFeedbackCfg);
+        if (!isMounted) return;
 
-          if (loadedProfileEditPerm && typeof loadedProfileEditPerm.allowStudentProfileEdit === 'boolean') {
-            resolvedAllowEdit = loadedProfileEditPerm.allowStudentProfileEdit;
-            setAllowStudentProfileEdit(resolvedAllowEdit);
-          } else if (Array.isArray(loadedCampuses)) {
-            const matchedCampus = loadedCampuses.find((c) => c.id === resolvedCampusId);
-            if (matchedCampus && typeof matchedCampus.allowStudentProfileEdit === 'boolean') {
-              resolvedAllowEdit = matchedCampus.allowStudentProfileEdit;
-              setAllowStudentProfileEdit(resolvedAllowEdit);
-            }
-          }
+        if (!authResult.ok && authResult.authErr?.status === 401 && navigator.onLine) {
+          removeAuthToken();
+          localStorage.removeItem('hyba_auth_user_id');
+          await clearEncryptedSession();
+          if (isMounted) setAuthPhase('unauthenticated');
+          return;
         }
 
-        let resolvedStudentFeedback: MyFeedbackStatusResponse | null = null;
-        if (resolvedRole === 'STUDENT') {
-          try {
-            const st = await api.getMyFeedbackStatus();
-            if (isMounted && st) {
-              resolvedStudentFeedback = st;
-              setMyFeedbackStatus(st);
-              if (st.isEnabled && st.requiresSubmission) {
-                setIsFeedbackOpen(true);
-              } else if (!st.isEnabled) {
-                setIsFeedbackOpen(false);
-              }
+        if (authResult.ok && authResult.me) {
+          const me = authResult.me;
+          resolvedRole = me.role;
+          resolvedCampusId = me.campusId;
+          resolvedUserId = me.id;
+          setCurrentUser((prev) => {
+            const sameClasses =
+              JSON.stringify(prev.assignedClassIds || []) ===
+              JSON.stringify(me.assignedClassIds || []);
+            const sameLinked =
+              JSON.stringify(prev.linkedStudentIds || []) ===
+              JSON.stringify(me.linkedStudentIds || []);
+            if (
+              prev.id === me.id &&
+              prev.role === me.role &&
+              prev.campusId === me.campusId &&
+              prev.studentId === me.studentId &&
+              prev.mustChangePassword === me.mustChangePassword &&
+              prev.biometricEnabled === me.biometricEnabled &&
+              prev.email === me.email &&
+              prev.phone === me.phone &&
+              prev.avatar === me.avatar &&
+              sameClasses &&
+              sameLinked
+            ) {
+              return prev;
             }
-          } catch (fbErr) {
-            console.warn('[HYBA] Could not load student feedback status:', fbErr);
+            return me;
+          });
+          localStorage.setItem('hyba_auth_user_id', me.id);
+          updateEncryptedSessionPatch({ user: me }).catch(() => {});
+        }
+
+        if (Array.isArray(loadedStudents)) setStudents(loadedStudents);
+        if (Array.isArray(loadedTeachers)) setTeachers(loadedTeachers);
+        if (Array.isArray(loadedClasses)) setClasses(loadedClasses);
+        if (Array.isArray(loadedHifz)) setHifzRecords(loadedHifz);
+        if (Array.isArray(loadedCampuses)) setCampuses(loadedCampuses);
+
+        let resolvedStudentFeedback: MyFeedbackStatusResponse | null = initialStudentFeedback;
+        if (resolvedRole === 'STUDENT') {
+          if (resolvedStudentFeedback) {
+            setMyFeedbackStatus(resolvedStudentFeedback);
+            if (resolvedStudentFeedback.isEnabled && resolvedStudentFeedback.requiresSubmission) {
+              setIsFeedbackOpen(true);
+            } else if (!resolvedStudentFeedback.isEnabled) {
+              setIsFeedbackOpen(false);
+            }
           }
-        } else if (isMounted) {
+        } else {
           setMyFeedbackStatus(null);
         }
 
-        // Persist fresh portal snapshot into IndexedDB for instant subsequent loads & zero-lag transitions
-        await savePortalSnapshot(resolvedUserId, resolvedCampusId, {
+        // Unblock UI immediately once Priority 1 core data is ready!
+        setIsInitialDataLoading(false);
+        setHasHydratedLocalCache(true);
+
+        // Hydrate Priority 2 secondary data in background
+        const [
+          loadedEvals,
+          loadedAnnouncements,
+          loadedEvents,
+          loadedTimetable,
+          loadedFeedbackCfg,
+          loadedProfileEditPerm,
+        ] = await secondaryPromise;
+
+        if (!isMounted) return;
+
+        let resolvedAllowEdit = allowStudentProfileEdit;
+
+        if (Array.isArray(loadedEvals)) setEvaluations(loadedEvals);
+        if (Array.isArray(loadedAnnouncements)) setAnnouncements(loadedAnnouncements);
+        if (Array.isArray(loadedEvents)) setEvents(loadedEvents);
+        if (Array.isArray(loadedTimetable)) setTimetableSlots(loadedTimetable);
+        if (loadedFeedbackCfg) setFeedbackConfig(loadedFeedbackCfg);
+
+        if (loadedProfileEditPerm && typeof loadedProfileEditPerm.allowStudentProfileEdit === 'boolean') {
+          resolvedAllowEdit = loadedProfileEditPerm.allowStudentProfileEdit;
+          setAllowStudentProfileEdit(resolvedAllowEdit);
+        } else if (Array.isArray(loadedCampuses)) {
+          const matchedCampus = loadedCampuses.find((c) => c.id === resolvedCampusId);
+          if (matchedCampus && typeof matchedCampus.allowStudentProfileEdit === 'boolean') {
+            resolvedAllowEdit = matchedCampus.allowStudentProfileEdit;
+            setAllowStudentProfileEdit(resolvedAllowEdit);
+          }
+        }
+
+        // Persist fresh portal snapshot into IndexedDB for instant subsequent loads
+        savePortalSnapshot(resolvedUserId, resolvedCampusId, {
           students: Array.isArray(loadedStudents) ? loadedStudents : undefined,
           teachers: Array.isArray(loadedTeachers) ? loadedTeachers : undefined,
           classes: Array.isArray(loadedClasses) ? loadedClasses : undefined,
@@ -401,8 +454,7 @@ export default function App() {
           feedbackConfig: loadedFeedbackCfg,
           myFeedbackStatus: resolvedStudentFeedback,
           allowStudentProfileEdit: resolvedAllowEdit,
-        });
-        if (isMounted) setHasHydratedLocalCache(true);
+        }).catch(() => {});
       } catch (err) {
         console.warn('[HYBA Frontend] Offline fallback active:', err);
       } finally {
@@ -410,134 +462,139 @@ export default function App() {
       }
     }
 
-    if (isAuthenticated) {
-      fetchAppData();
-    }
+    fetchAppData();
 
-    const unsubscribe = subscribeToRealtimeEvents({
-      onAttendanceUpdated: (data) => {
-        setAttendanceSession((prev) => {
-          if (prev.classId === data.classId && prev.date === data.date && prev.sessionHour === data.sessionHour) {
-            return {
-              ...prev,
-              records: { ...prev.records, ...data.records },
-            };
-          }
-          return prev;
-        });
-        api
-          .getStudents()
-          .then((latest) => {
-            if (isMounted && Array.isArray(latest)) setStudents(latest);
-          })
-          .catch(() => {});
-      },
-      onHifzRecordCreated: (newRec) => {
-        setHifzRecords((prev) => {
-          if (prev.some((r) => r.id === newRec.id)) return prev;
-          return [newRec, ...prev];
-        });
-      },
-      onHifzRecordUpdated: (updatedRec) => {
-        setHifzRecords((prev) => prev.map((r) => (r.id === updatedRec.id ? updatedRec : r)));
-      },
-      onStudentUpdated: (updatedStudent) => {
-        setStudents((prev) => {
-          const idx = prev.findIndex((s) => s.id === updatedStudent.id);
-          if (idx >= 0) {
-            const next = [...prev];
-            next[idx] = updatedStudent;
-            return next;
-          }
-          return [...prev, updatedStudent];
-        });
-      },
-      onTeacherUpdated: (updatedTeacher) => {
-        setTeachers((prev) => {
-          const idx = prev.findIndex((t) => t.id === updatedTeacher.id);
-          if (idx >= 0) {
-            const next = [...prev];
-            next[idx] = updatedTeacher;
-            return next;
-          }
-          return [...prev, updatedTeacher];
-        });
-      },
-      onAnnouncementCreated: (newAnn) => {
-        setAnnouncements((prev) => [newAnn, ...prev]);
-      },
-      onEventCreated: (newEv: CollegeEvent) => {
-        setEvents((prev) => [newEv, ...prev.filter((e) => e.id !== newEv.id)]);
-      },
-      onEventUpdated: (updatedEv: CollegeEvent) => {
-        setEvents((prev) => prev.map((e) => (e.id === updatedEv.id ? updatedEv : e)));
-      },
-      onEventDeleted: (payload: { id: string }) => {
-        setEvents((prev) => prev.filter((e) => e.id !== payload.id));
-      },
-      onTimetableUpdated: () => {
-        api
-          .getTimetable()
-          .then((latest) => {
-            if (isMounted && Array.isArray(latest)) setTimetableSlots(latest);
-          })
-          .catch(() => {});
-      },
-      onFeedbackConfigUpdated: (cfg: FeedbackConfig) => {
+    // Dynamically load Socket.IO client only after authentication
+    import('./services/socket')
+      .then(({ subscribeToRealtimeEvents }) => {
         if (!isMounted) return;
-        setFeedbackConfig(cfg);
-        if (currentUser.role === 'STUDENT') {
-          if (!cfg.isEnabled) {
-            setIsFeedbackOpen(false);
-            setMyFeedbackStatus((prev) =>
-              prev
-                ? {
-                    ...prev,
-                    isEnabled: false,
-                    requiresSubmission: false,
-                    questions: [],
-                    pendingTeachers: [],
-                  }
-                : null
-            );
-          } else {
+        unsubscribeRealtime = subscribeToRealtimeEvents({
+          onAttendanceUpdated: (data) => {
+            setAttendanceSession((prev) => {
+              if (prev.classId === data.classId && prev.date === data.date && prev.sessionHour === data.sessionHour) {
+                return {
+                  ...prev,
+                  records: { ...prev.records, ...data.records },
+                };
+              }
+              return prev;
+            });
             api
-              .getMyFeedbackStatus()
-              .then((st) => {
-                if (!isMounted || !st) return;
-                setMyFeedbackStatus(st);
-                if (st.isEnabled && st.requiresSubmission) {
-                  setIsFeedbackOpen(true);
-                }
+              .getStudents()
+              .then((latest) => {
+                if (isMounted && Array.isArray(latest)) setStudents(latest);
               })
               .catch(() => {});
-          }
-        }
-      },
-      onStudentProfilePermissionUpdated: (data) => {
-        if (!isMounted) return;
-        if (!data.campusId || !currentUser.campusId || data.campusId === currentUser.campusId) {
-          setAllowStudentProfileEdit(Boolean(data.allowStudentProfileEdit));
-        }
-        if (data.campusId) {
-          setCampuses((prev) =>
-            prev.map((c) =>
-              c.id === data.campusId
-                ? { ...c, allowStudentProfileEdit: Boolean(data.allowStudentProfileEdit) }
-                : c
-            )
-          );
-        }
-      },
-    });
+          },
+          onHifzRecordCreated: (newRec) => {
+            setHifzRecords((prev) => {
+              if (prev.some((r) => r.id === newRec.id)) return prev;
+              return [newRec, ...prev];
+            });
+          },
+          onHifzRecordUpdated: (updatedRec) => {
+            setHifzRecords((prev) => prev.map((r) => (r.id === updatedRec.id ? updatedRec : r)));
+          },
+          onStudentUpdated: (updatedStudent) => {
+            setStudents((prev) => {
+              const idx = prev.findIndex((s) => s.id === updatedStudent.id);
+              if (idx >= 0) {
+                const next = [...prev];
+                next[idx] = updatedStudent;
+                return next;
+              }
+              return [...prev, updatedStudent];
+            });
+          },
+          onTeacherUpdated: (updatedTeacher) => {
+            setTeachers((prev) => {
+              const idx = prev.findIndex((t) => t.id === updatedTeacher.id);
+              if (idx >= 0) {
+                const next = [...prev];
+                next[idx] = updatedTeacher;
+                return next;
+              }
+              return [...prev, updatedTeacher];
+            });
+          },
+          onAnnouncementCreated: (newAnn) => {
+            setAnnouncements((prev) => [newAnn, ...prev]);
+          },
+          onEventCreated: (newEv: CollegeEvent) => {
+            setEvents((prev) => [newEv, ...prev.filter((e) => e.id !== newEv.id)]);
+          },
+          onEventUpdated: (updatedEv: CollegeEvent) => {
+            setEvents((prev) => prev.map((e) => (e.id === updatedEv.id ? updatedEv : e)));
+          },
+          onEventDeleted: (payload: { id: string }) => {
+            setEvents((prev) => prev.filter((e) => e.id !== payload.id));
+          },
+          onTimetableUpdated: () => {
+            api
+              .getTimetable()
+              .then((latest) => {
+                if (isMounted && Array.isArray(latest)) setTimetableSlots(latest);
+              })
+              .catch(() => {});
+          },
+          onFeedbackConfigUpdated: (cfg: FeedbackConfig) => {
+            if (!isMounted) return;
+            setFeedbackConfig(cfg);
+            if (currentUser.role === 'STUDENT') {
+              if (!cfg.isEnabled) {
+                setIsFeedbackOpen(false);
+                setMyFeedbackStatus((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        isEnabled: false,
+                        requiresSubmission: false,
+                        questions: [],
+                        pendingTeachers: [],
+                      }
+                    : null
+                );
+              } else {
+                api
+                  .getMyFeedbackStatus()
+                  .then((st) => {
+                    if (!isMounted || !st) return;
+                    setMyFeedbackStatus(st);
+                    if (st.isEnabled && st.requiresSubmission) {
+                      setIsFeedbackOpen(true);
+                    }
+                  })
+                  .catch(() => {});
+              }
+            }
+          },
+          onStudentProfilePermissionUpdated: (data) => {
+            if (!isMounted) return;
+            if (!data.campusId || !currentUser.campusId || data.campusId === currentUser.campusId) {
+              setAllowStudentProfileEdit(Boolean(data.allowStudentProfileEdit));
+            }
+            if (data.campusId) {
+              setCampuses((prev) =>
+                prev.map((c) =>
+                  c.id === data.campusId
+                    ? { ...c, allowStudentProfileEdit: Boolean(data.allowStudentProfileEdit) }
+                    : c
+                )
+              );
+            }
+          },
+        });
+      })
+      .catch(() => {});
 
     return () => {
       isMounted = false;
-      unsubscribe();
+      unsubscribeRealtime?.();
     };
   }, [isAuthenticated, currentUser.id, currentUser.role, currentUser.campusId, bgRefreshTick]);
 
   const handleLoginSuccess = async (user: UserProfile, viaBiometric = false) => {
+    skipNextAuthVerifyRef.current = true;
     const existingSession = await loadEncryptedSession();
     const isSameUser = existingSession?.user?.id === user.id;
     const preserveBiometric = Boolean(
@@ -553,14 +610,14 @@ export default function App() {
     localStorage.setItem('hyba_auth_user_id', user.id);
     localStorage.setItem(`hyba_active_tab_${user.id}`, 'dashboard');
 
-    await saveEncryptedSession({
+    saveEncryptedSession({
       user,
       biometricLockEnabled: preserveBiometric,
       biometricCredentialId: isSameUser ? existingSession?.biometricCredentialId : undefined,
       biometricPromptDismissed: isSameUser ? existingSession?.biometricPromptDismissed : false,
       lastActiveTab: 'dashboard',
       updatedAt: Date.now(),
-    });
+    }).catch(() => {});
 
     setAuthPhase('authenticated');
 
@@ -581,14 +638,15 @@ export default function App() {
   };
 
   const handleBiometricUnlocked = async (verifiedUser: UserProfile) => {
+    skipNextAuthVerifyRef.current = true;
     setCurrentUser(verifiedUser);
     setLockedUser(null);
     setFallbackUsername(undefined);
     localStorage.setItem('hyba_auth_user_id', verifiedUser.id);
-    await updateEncryptedSessionPatch({
+    updateEncryptedSessionPatch({
       user: { ...verifiedUser, biometricEnabled: true },
       biometricLockEnabled: true,
-    });
+    }).catch(() => {});
     setAuthPhase('authenticated');
   };
 
@@ -733,15 +791,17 @@ export default function App() {
   if (authPhase === 'biometric_lock' && lockedUser) {
     return (
       <>
-        <BiometricLockScreen
-          user={lockedUser}
-          onUnlocked={handleBiometricUnlocked}
-          onUsePasswordFallback={() => {
-            setFallbackUsername(lockedUser.username || lockedUser.referenceId || lockedUser.email);
-            setAuthPhase('unauthenticated');
-          }}
-          onSwitchAccount={handleLogout}
-        />
+        <Suspense fallback={<AppBootSkeleton />}>
+          <BiometricLockScreen
+            user={lockedUser}
+            onUnlocked={handleBiometricUnlocked}
+            onUsePasswordFallback={() => {
+              setFallbackUsername(lockedUser.username || lockedUser.referenceId || lockedUser.email);
+              setAuthPhase('unauthenticated');
+            }}
+            onSwitchAccount={handleLogout}
+          />
+        </Suspense>
         <OfflineSyncIndicator />
       </>
     );
@@ -1068,45 +1128,47 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-emerald-100 selection:text-emerald-900 antialiased overflow-x-hidden">
-      <Navbar
-        currentUser={currentUser}
-        assignedCampus={assignedCampus}
-        currentTab={currentTab}
-        feedbackEnabled={navFeedbackEnabled}
-        onTabChange={setCurrentTab}
-        onOpenAttendance={() => setCurrentTab('attendance')}
-        onOpenAddHifz={() => {
-          if (currentUser.role === 'MUDEER' || currentUser.role === 'USTHAD') {
-            setIsAddHifzOpen(true);
+      <Suspense fallback={<div className="h-16 bg-white border-b border-slate-200/80" />}>
+        <Navbar
+          currentUser={currentUser}
+          assignedCampus={assignedCampus}
+          currentTab={currentTab}
+          feedbackEnabled={navFeedbackEnabled}
+          onTabChange={setCurrentTab}
+          onOpenAttendance={() => setCurrentTab('attendance')}
+          onOpenAddHifz={() => {
+            if (currentUser.role === 'MUDEER' || currentUser.role === 'USTHAD') {
+              setIsAddHifzOpen(true);
+            }
+          }}
+          onOpenIdCard={() => handleOpenIdCard()}
+          onOpenTimetable={() => setIsTimetableOpen(true)}
+          onOpenFeedback={() => {
+            if (currentUser.role === 'MUDEER') {
+              setCurrentTab('feedback');
+            } else if (navFeedbackEnabled) {
+              setIsFeedbackOpen(true);
+            }
+          }}
+          onOpenChangePassword={() => setIsChangePasswordOpen(true)}
+          onOpenDeviceSettings={() => setIsDeviceSettingsOpen(true)}
+          onOpenAddCampus={
+            currentUser.role === 'HYBA_SUPER_ADMIN'
+              ? () => {
+                  setCampusManagementAction('add');
+                  setCurrentTab('campuses');
+                }
+              : undefined
           }
-        }}
-        onOpenIdCard={() => handleOpenIdCard()}
-        onOpenTimetable={() => setIsTimetableOpen(true)}
-        onOpenFeedback={() => {
-          if (currentUser.role === 'MUDEER') {
-            setCurrentTab('feedback');
-          } else if (navFeedbackEnabled) {
-            setIsFeedbackOpen(true);
-          }
-        }}
-        onOpenChangePassword={() => setIsChangePasswordOpen(true)}
-        onOpenDeviceSettings={() => setIsDeviceSettingsOpen(true)}
-        onOpenAddCampus={
-          currentUser.role === 'HYBA_SUPER_ADMIN'
-            ? () => {
-                setCampusManagementAction('add');
-                setCurrentTab('campuses');
-              }
-            : undefined
-        }
-        onLogout={handleLogout}
-      />
+          onLogout={handleLogout}
+        />
+      </Suspense>
 
       <main className="flex-1 pb-16 lg:pb-8">
         {isInitialDataLoading && !hasHydratedLocalCache ? (
           <DashboardSkeleton />
         ) : (
-          renderMainTabContent()
+          <Suspense fallback={<DashboardSkeleton />}>{renderMainTabContent()}</Suspense>
         )}
       </main>
 
@@ -1117,6 +1179,8 @@ export default function App() {
               <img
                 src={INSTITUTION_INFO.logoUrl}
                 alt="Footer Emblem"
+                loading="lazy"
+                decoding="async"
                 className="w-full h-full object-contain"
                 referrerPolicy="no-referrer"
               />
@@ -1142,88 +1206,104 @@ export default function App() {
         </div>
       </footer>
 
-      {/* Modals */}
-      <AddHifzRecordModal
-        isOpen={isAddHifzOpen}
-        onClose={() => setIsAddHifzOpen(false)}
-        students={scopedStudents}
-        currentUser={currentUser}
-        onAddRecord={handleAddHifzRecord}
-      />
-
-      <StudentIdCardModal
-        isOpen={isIdCardOpen}
-        onClose={() => setIsIdCardOpen(false)}
-        student={idCardStudent}
-      />
-
-      <TimetableModal
-        isOpen={isTimetableOpen}
-        onClose={() => setIsTimetableOpen(false)}
-        currentUser={currentUser}
-        slots={timetableSlots}
-        onTimetableChanged={setTimetableSlots}
-      />
-
-      <FeedbackModal
-        isOpen={isFeedbackOpen}
-        onClose={() => setIsFeedbackOpen(false)}
-        currentUser={currentUser}
-        feedbackStatus={myFeedbackStatus}
-        isMandatory={Boolean(
-          currentUser.role === 'STUDENT' &&
-            myFeedbackStatus?.isEnabled &&
-            myFeedbackStatus?.requiresSubmission
+      {/* Lazy-mounted Modals (chunks download only when opened) */}
+      <Suspense fallback={null}>
+        {isAddHifzOpen && (
+          <AddHifzRecordModal
+            isOpen={isAddHifzOpen}
+            onClose={() => setIsAddHifzOpen(false)}
+            students={scopedStudents}
+            currentUser={currentUser}
+            onAddRecord={handleAddHifzRecord}
+          />
         )}
-        onSubmitted={async () => {
-          if (currentUser.role === 'STUDENT') {
-            const st = await api.getMyFeedbackStatus().catch(() => null);
-            if (st) setMyFeedbackStatus(st);
-          }
-        }}
-      />
 
-      <ChangePasswordModal
-        isOpen={isChangePasswordOpen}
-        onClose={() => setIsChangePasswordOpen(false)}
-        currentUser={currentUser}
-        onPasswordChanged={() =>
-          setCurrentUser((prev) => ({ ...prev, mustChangePassword: false }))
-        }
-      />
+        {isIdCardOpen && (
+          <StudentIdCardModal
+            isOpen={isIdCardOpen}
+            onClose={() => setIsIdCardOpen(false)}
+            student={idCardStudent}
+          />
+        )}
 
-      <BiometricEnrollModal
-        isOpen={isBiometricEnrollOpen}
-        user={currentUser}
-        onEnrolled={async (credentialID) => {
-          setIsBiometricEnrollOpen(false);
-          setCurrentUser((prev) => ({ ...prev, biometricEnabled: true }));
-          await updateEncryptedSessionPatch({
-            biometricLockEnabled: true,
-            biometricCredentialId: credentialID,
-            biometricPromptDismissed: false,
-          });
-        }}
-        onDismiss={() => {
-          setIsBiometricEnrollOpen(false);
-          if (currentUser.id) {
-            localStorage.setItem(`hyba_bio_prompt_dismissed_${currentUser.id}`, '1');
-          }
-        }}
-      />
+        {isTimetableOpen && (
+          <TimetableModal
+            isOpen={isTimetableOpen}
+            onClose={() => setIsTimetableOpen(false)}
+            currentUser={currentUser}
+            slots={timetableSlots}
+            onTimetableChanged={setTimetableSlots}
+          />
+        )}
 
-      <DeviceAndSecurityModal
-        isOpen={isDeviceSettingsOpen}
-        onClose={() => setIsDeviceSettingsOpen(false)}
-        currentUser={currentUser}
-        onBiometricStatusChanged={async (enabled, credentialID) => {
-          setCurrentUser((prev) => ({ ...prev, biometricEnabled: enabled }));
-          await updateEncryptedSessionPatch({
-            biometricLockEnabled: enabled,
-            biometricCredentialId: credentialID,
-          });
-        }}
-      />
+        {isFeedbackOpen && (
+          <FeedbackModal
+            isOpen={isFeedbackOpen}
+            onClose={() => setIsFeedbackOpen(false)}
+            currentUser={currentUser}
+            feedbackStatus={myFeedbackStatus}
+            isMandatory={Boolean(
+              currentUser.role === 'STUDENT' &&
+                myFeedbackStatus?.isEnabled &&
+                myFeedbackStatus?.requiresSubmission
+            )}
+            onSubmitted={async () => {
+              if (currentUser.role === 'STUDENT') {
+                const st = await api.getMyFeedbackStatus().catch(() => null);
+                if (st) setMyFeedbackStatus(st);
+              }
+            }}
+          />
+        )}
+
+        {isChangePasswordOpen && (
+          <ChangePasswordModal
+            isOpen={isChangePasswordOpen}
+            onClose={() => setIsChangePasswordOpen(false)}
+            currentUser={currentUser}
+            onPasswordChanged={() =>
+              setCurrentUser((prev) => ({ ...prev, mustChangePassword: false }))
+            }
+          />
+        )}
+
+        {isBiometricEnrollOpen && (
+          <BiometricEnrollModal
+            isOpen={isBiometricEnrollOpen}
+            user={currentUser}
+            onEnrolled={async (credentialID) => {
+              setIsBiometricEnrollOpen(false);
+              setCurrentUser((prev) => ({ ...prev, biometricEnabled: true }));
+              await updateEncryptedSessionPatch({
+                biometricLockEnabled: true,
+                biometricCredentialId: credentialID,
+                biometricPromptDismissed: false,
+              });
+            }}
+            onDismiss={() => {
+              setIsBiometricEnrollOpen(false);
+              if (currentUser.id) {
+                localStorage.setItem(`hyba_bio_prompt_dismissed_${currentUser.id}`, '1');
+              }
+            }}
+          />
+        )}
+
+        {isDeviceSettingsOpen && (
+          <DeviceAndSecurityModal
+            isOpen={isDeviceSettingsOpen}
+            onClose={() => setIsDeviceSettingsOpen(false)}
+            currentUser={currentUser}
+            onBiometricStatusChanged={async (enabled, credentialID) => {
+              setCurrentUser((prev) => ({ ...prev, biometricEnabled: enabled }));
+              await updateEncryptedSessionPatch({
+                biometricLockEnabled: enabled,
+                biometricCredentialId: credentialID,
+              });
+            }}
+          />
+        )}
+      </Suspense>
 
       <OfflineSyncIndicator />
       <PWAInstallBanner />

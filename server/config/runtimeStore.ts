@@ -461,6 +461,15 @@ export function isMongoReady(): boolean {
   return mongoose.connection.readyState === 1;
 }
 
+const seedHashCache = new Map<string, string>();
+function getSeedPasswordHash(password: string): string {
+  const existing = seedHashCache.get(password);
+  if (existing) return existing;
+  const hash = bcrypt.hashSync(password, 8);
+  seedHashCache.set(password, hash);
+  return hash;
+}
+
 function buildInitialUsers(): RuntimeUser[] {
   return Object.entries(MOCK_USERS).map(([key, userObj]) => ({
     id: userObj.id,
@@ -469,7 +478,7 @@ function buildInitialUsers(): RuntimeUser[] {
     arabicName: userObj.arabicName,
     username: (userObj.username || key).toLowerCase(),
     email: userObj.email.toLowerCase(),
-    passwordHash: bcrypt.hashSync(userObj.password || 'password123', 10),
+    passwordHash: getSeedPasswordHash(userObj.password || 'password123'),
     phone: userObj.phone || '',
     avatar: userObj.avatar || '',
     title: userObj.title,
@@ -533,7 +542,7 @@ function ensureAdminSeedIntegrity(db: RuntimeDb): boolean {
       arabicName: superCfg.arabicName,
       username: (superCfg.username || 'Admin.Hyba_Campus.portal').toLowerCase(),
       email: superCfg.email.toLowerCase(),
-      passwordHash: bcrypt.hashSync(superCfg.password || 'HYBA. Markazul_Hidaya.Kombam', 10),
+      passwordHash: getSeedPasswordHash(superCfg.password || 'HYBA. Markazul_Hidaya.Kombam'),
       phone: superCfg.phone || '',
       avatar: superCfg.avatar || '',
       title: superCfg.title,
@@ -565,7 +574,7 @@ function ensureAdminSeedIntegrity(db: RuntimeDb): boolean {
       arabicName: cityCfg.arabicName,
       username: (cityCfg.username || 'mudir.city').toLowerCase(),
       email: cityCfg.email.toLowerCase(),
-      passwordHash: bcrypt.hashSync(cityCfg.password || 'password123', 10),
+      passwordHash: getSeedPasswordHash(cityCfg.password || 'password123'),
       phone: cityCfg.phone || '',
       avatar: cityCfg.avatar || '',
       title: cityCfg.title,
@@ -601,7 +610,7 @@ function ensureAdminSeedIntegrity(db: RuntimeDb): boolean {
         arabicName: std.arabicName || std.fullName,
         username: cleanUsername,
         email: `${cleanUsername.replace(/[^a-z0-9._-]/g, '') || std.id}.student@markazulhidaya.edu.in`,
-        passwordHash: bcrypt.hashSync(defaultPass, 10),
+        passwordHash: getSeedPasswordHash(defaultPass),
         phone: std.parentPhone || '',
         avatar: std.photo || '',
         title: cls?.name ? `Student · ${cls.name}` : `Student · ${std.classId}`,
@@ -690,14 +699,17 @@ export function getRuntimeDb(): RuntimeDb {
   return memoryDb;
 }
 
+let saveChain: Promise<void> = Promise.resolve();
+
 export function saveRuntimeDb(db?: RuntimeDb) {
   const target = db || memoryDb;
   if (!target) return;
-  try {
-    fs.writeFileSync(RUNTIME_DB_PATH, JSON.stringify(target, null, 2), 'utf-8');
-  } catch (err: any) {
-    console.warn('[RuntimeStore] Could not persist runtime DB:', err.message);
-  }
+  const serialized = JSON.stringify(target);
+  saveChain = saveChain
+    .then(() => fs.promises.writeFile(RUNTIME_DB_PATH, serialized, 'utf-8'))
+    .catch((err: any) => {
+      console.warn('[RuntimeStore] Could not persist runtime DB:', err.message);
+    });
 }
 
 export function sanitizeRuntimeUser(u: RuntimeUser) {

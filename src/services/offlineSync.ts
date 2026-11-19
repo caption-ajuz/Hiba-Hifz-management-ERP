@@ -176,24 +176,38 @@ export function initPwaRuntime() {
   if (initialized || typeof window === 'undefined') return;
   initialized = true;
 
-  // 1. Register Workbox Service Worker via vite-plugin-pwa
+  // 1. Defer Workbox Service Worker registration until after initial load to keep startup instant
   if ('serviceWorker' in navigator) {
-    registerSW({
-      immediate: true,
-      onRegisteredSW(_swUrl, registration) {
-        if (registration) {
-          swRegistration = registration;
-          registerPeriodicBackgroundSync().catch(() => {});
-          // Periodically check for SW updates every 30 minutes
-          window.setInterval(() => {
-            registration.update().catch(() => {});
-          }, 30 * 60 * 1000);
-        }
-      },
-      onRegisterError(err) {
-        console.warn('[Hyba PWA] Service Worker registration notice:', err);
-      },
-    });
+    const startSwRegistration = () => {
+      registerSW({
+        immediate: true,
+        onRegisteredSW(_swUrl, registration) {
+          if (registration) {
+            swRegistration = registration;
+            registerPeriodicBackgroundSync().catch(() => {});
+            // Periodically check for SW updates every 30 minutes
+            window.setInterval(() => {
+              registration.update().catch(() => {});
+            }, 30 * 60 * 1000);
+          }
+        },
+        onRegisterError(err) {
+          console.warn('[Hyba PWA] Service Worker registration notice:', err);
+        },
+      });
+    };
+
+    if (document.readyState === 'complete') {
+      window.setTimeout(startSwRegistration, 1200);
+    } else {
+      window.addEventListener(
+        'load',
+        () => {
+          window.setTimeout(startSwRegistration, 1200);
+        },
+        { once: true }
+      );
+    }
 
     // Listen to messages from Service Worker (background sync & periodic refresh)
     navigator.serviceWorker.addEventListener('message', (event) => {

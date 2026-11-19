@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import express from 'express';
+import compression from 'compression';
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
@@ -43,13 +44,14 @@ async function startServer() {
   initSocketIO(server);
 
   // Core Middlewares
+  app.use(compression({ threshold: 1024 }));
   app.use(cors({ origin: true, credentials: true }));
   app.use(cookieParser());
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
   // Static files for local uploads (accessible in both dev and production)
-  app.use('/uploads', express.static(path.resolve(__dirname, 'public/uploads')));
+  app.use('/uploads', express.static(path.resolve(__dirname, 'public/uploads'), { maxAge: '7d' }));
 
   // API Routes
   app.use('/api/auth', authRoutes);
@@ -156,12 +158,14 @@ async function startServer() {
     const publicPath = path.resolve(__dirname, 'public');
 
     // Robust static asset handlers supporting /assets, /public/assets, and legacy /src/assets
-    app.use('/assets', express.static(path.resolve(distPath, 'assets')));
-    app.use('/assets', express.static(path.resolve(publicPath, 'assets')));
-    app.use('/public/assets', express.static(path.resolve(distPath, 'assets')));
-    app.use('/public/assets', express.static(path.resolve(publicPath, 'assets')));
-    app.use('/src/assets/images', express.static(path.resolve(publicPath, 'assets', 'images')));
-    app.use('/src/assets', express.static(path.resolve(publicPath, 'assets')));
+    const hashedAssetOpts = { maxAge: '1y', immutable: true };
+    const mediaAssetOpts = { maxAge: '7d' };
+    app.use('/assets', express.static(path.resolve(distPath, 'assets'), hashedAssetOpts));
+    app.use('/assets', express.static(path.resolve(publicPath, 'assets'), mediaAssetOpts));
+    app.use('/public/assets', express.static(path.resolve(distPath, 'assets'), hashedAssetOpts));
+    app.use('/public/assets', express.static(path.resolve(publicPath, 'assets'), mediaAssetOpts));
+    app.use('/src/assets/images', express.static(path.resolve(publicPath, 'assets', 'images'), mediaAssetOpts));
+    app.use('/src/assets', express.static(path.resolve(publicPath, 'assets'), mediaAssetOpts));
 
     // Ensure service worker and PWA manifest are never stale in browsers
     app.get(['/sw.js', '/registerSW.js'], (_req, res, next) => {
@@ -176,7 +180,16 @@ async function startServer() {
     });
 
     // General static middleware for dist (HTML, scripts, stylesheets)
-    app.use(express.static(distPath));
+    app.use(
+      express.static(distPath, {
+        maxAge: '1d',
+        setHeaders(res, filePath) {
+          if (filePath.endsWith('index.html') || filePath.endsWith('sw.js')) {
+            res.setHeader('Cache-Control', 'no-cache');
+          }
+        },
+      })
+    );
 
     // Never return HTML index for missing image or media extensions (prevents broken image box)
     app.get(/\.(jpg|jpeg|png|gif|svg|webp|ico|css|js|map|webmanifest)$/, (_req, res) => {
@@ -184,6 +197,7 @@ async function startServer() {
     });
 
     app.get('*', (_req, res) => {
+      res.setHeader('Cache-Control', 'no-cache');
       res.sendFile(path.resolve(distPath, 'index.html'));
     });
   }

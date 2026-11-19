@@ -49,22 +49,23 @@ function isNetworkFailure(error: any): boolean {
 
 async function request<T>(
   endpoint: string,
-  options: RequestInit = {},
+  options: RequestInit & { timeoutMs?: number } = {},
   fallbackData?: T,
   offlineQueueMeta?: { label: string; optimisticReturn: T }
 ): Promise<T> {
+  const { timeoutMs, ...fetchOptions } = options;
   const token = getAuthToken();
-  const headers = new Headers(options.headers || {});
+  const headers = new Headers(fetchOptions.headers || {});
 
   if (token && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  if (!(options.body instanceof FormData) && !headers.has('Content-Type')) {
+  if (!(fetchOptions.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
 
-  const method = (options.method || 'GET').toUpperCase();
+  const method = (fetchOptions.method || 'GET').toUpperCase();
 
   // If offline and this mutation supports Background Sync queueing, enqueue immediately
   if (
@@ -75,19 +76,23 @@ async function request<T>(
   ) {
     let parsedBody: unknown;
     try {
-      parsedBody = typeof options.body === 'string' ? JSON.parse(options.body) : options.body;
+      parsedBody = typeof fetchOptions.body === 'string' ? JSON.parse(fetchOptions.body) : fetchOptions.body;
     } catch {
-      parsedBody = options.body;
+      parsedBody = fetchOptions.body;
     }
     await queueOfflineAction(endpoint, method, parsedBody, offlineQueueMeta.label);
     return offlineQueueMeta.optimisticReturn;
   }
 
+  const controller = timeoutMs && !fetchOptions.signal ? new AbortController() : null;
+  const timeoutId = controller ? window.setTimeout(() => controller.abort(), timeoutMs) : null;
+
   try {
     const res = await fetch(endpoint, {
-      ...options,
+      ...fetchOptions,
       headers,
       credentials: 'include',
+      signal: fetchOptions.signal || controller?.signal,
     });
 
     if (!res.ok) {
@@ -110,9 +115,9 @@ async function request<T>(
     ) {
       let parsedBody: unknown;
       try {
-        parsedBody = typeof options.body === 'string' ? JSON.parse(options.body) : options.body;
+        parsedBody = typeof fetchOptions.body === 'string' ? JSON.parse(fetchOptions.body) : fetchOptions.body;
       } catch {
-        parsedBody = options.body;
+        parsedBody = fetchOptions.body;
       }
       await queueOfflineAction(endpoint, method, parsedBody, offlineQueueMeta.label);
       return offlineQueueMeta.optimisticReturn;
@@ -123,6 +128,10 @@ async function request<T>(
       return fallbackData;
     }
     throw error;
+  } finally {
+    if (timeoutId !== null) {
+      window.clearTimeout(timeoutId);
+    }
   }
 }
 
@@ -163,8 +172,11 @@ export const api = {
     }
   },
 
-  async getCurrentUser(): Promise<UserProfile | null> {
-    const res = await request<{ user: UserProfile }>('/api/auth/me');
+  async getCurrentUser(timeoutMs?: number): Promise<UserProfile | null> {
+    const res = await request<{ user: UserProfile }>(
+      '/api/auth/me',
+      timeoutMs ? { timeoutMs } : {}
+    );
     return res.user || null;
   },
 

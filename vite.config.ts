@@ -58,9 +58,9 @@ export default defineConfig(() => {
           ],
         },
         injectManifest: {
-          globPatterns: ['**/*.{js,css,html,ico,svg,woff,woff2}', 'pwa-*.png', 'apple-touch-icon.png'],
+          globPatterns: ['index.html', 'manifest.json', 'favicon.ico', 'icon.svg', 'pwa-192x192.png', 'assets/index-*.css'],
           globIgnores: ['**/Screenshot_*', '**/node_modules/**'],
-          maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+          maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         },
         devOptions: {
           enabled: true,
@@ -69,6 +69,30 @@ export default defineConfig(() => {
         },
       }),
     ],
+    build: {
+      target: 'es2020',
+      cssCodeSplit: true,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('react-dom') || id.includes('/react/') || id.includes('scheduler')) {
+                return 'vendor-react';
+              }
+              if (id.includes('lucide-react')) {
+                return 'vendor-icons';
+              }
+              if (id.includes('socket.io') || id.includes('engine.io')) {
+                return 'vendor-socket';
+              }
+              if (id.includes('motion') || id.includes('framer-motion')) {
+                return 'vendor-motion';
+              }
+            }
+          },
+        },
+      },
+    },
     resolve: {
       alias: {
         '@': path.resolve(import.meta.dirname, '.'),

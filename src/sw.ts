@@ -65,6 +65,26 @@ registerRoute(
   })
 );
 
+// 2b. Cache-First for content-hashed Vite JS/CSS chunks (cached on-demand per role/tab)
+registerRoute(
+  ({ request, url }) =>
+    url.origin === self.location.origin &&
+    url.pathname.startsWith('/assets/') &&
+    (request.destination === 'script' ||
+      request.destination === 'style' ||
+      /\.(?:js|css)$/i.test(url.pathname)),
+  new CacheFirst({
+    cacheName: 'hyba-hashed-bundles',
+    plugins: [
+      new CacheableResponsePlugin({ statuses: [0, 200] }),
+      new ExpirationPlugin({
+        maxEntries: 80,
+        maxAgeSeconds: 60 * 60 * 24 * 30, // 30 days
+      }),
+    ],
+  })
+);
+
 // 3. Cache-First for static assets (images, avatars, logos, icons)
 registerRoute(
   ({ request, url }) =>

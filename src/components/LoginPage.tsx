@@ -239,6 +239,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               src={INSTITUTION_INFO.campusBannerUrl}
               alt="Markazul Hidayathil Islamiyya Campus Building"
               className="w-full h-full object-cover object-center"
+              fetchPriority="high"
+              decoding="async"
               referrerPolicy="no-referrer"
               onError={() => setBannerError(true)}
             />
@@ -274,6 +276,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     src={INSTITUTION_INFO.logoUrl}
                     alt={INSTITUTION_INFO.name}
                     className="w-full h-full object-contain"
+                    fetchPriority="high"
+                    decoding="async"
                     referrerPolicy="no-referrer"
                     onError={() => setLogoError(true)}
                   />
