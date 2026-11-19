@@ -26,6 +26,7 @@ export function initSocketIO(httpServer: HttpServer): SocketIOServer {
     transports: ['websocket', 'polling'],
     pingTimeout: 30000,
     pingInterval: 10000,
+    destroyUpgrade: false,
   });
 
   // Socket middleware for authentication (graceful if anonymous demo, but maps authenticated users to secure rooms)

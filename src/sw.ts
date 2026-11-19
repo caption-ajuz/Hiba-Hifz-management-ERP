@@ -15,17 +15,31 @@ clientsClaim();
 
 // 1. App Shell & Static Bundle Pre-caching
 cleanupOutdatedCaches();
-precacheAndRoute(self.__WB_MANIFEST || []);
+const precacheEntries = self.__WB_MANIFEST || [];
+precacheAndRoute(precacheEntries);
 
-// Serve cached App Shell for SPA navigations (excludes API and static files)
+// Serve cached App Shell for SPA navigations (excludes API, uploads, socket, and Vite dev internals)
 try {
-  const appShellHandler = createHandlerBoundToURL('/index.html');
-  const navigationRoute = new NavigationRoute(appShellHandler, {
-    denylist: [/^\/api\//, /^\/uploads\//, /^\/socket\.io\//],
+  const hasRootIndex = precacheEntries.some((entry) => {
+    const url = typeof entry === 'string' ? entry : entry.url;
+    return url === '/index.html' || url === 'index.html';
   });
-  registerRoute(navigationRoute);
+  if (hasRootIndex) {
+    const appShellHandler = createHandlerBoundToURL('/index.html');
+    const navigationRoute = new NavigationRoute(appShellHandler, {
+      denylist: [
+        /^\/api\//,
+        /^\/uploads\//,
+        /^\/socket\.io\//,
+        /^\/@/,
+        /^\/node_modules\//,
+        /^\/src\//,
+      ],
+    });
+    registerRoute(navigationRoute);
+  }
 } catch {
-  // In dev mode, index.html may not be in __WB_MANIFEST; fall back gracefully
+  // In dev mode, fall back cleanly to network for SPA navigation
 }
 
 // 2. Cache-First for Google Fonts stylesheets & webfonts

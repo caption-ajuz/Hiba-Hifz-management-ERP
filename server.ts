@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import express from 'express';
+import fs from 'fs';
 import http from 'http';
 import path from 'path';
 import cors from 'cors';
@@ -85,32 +86,73 @@ async function startServer() {
     console.warn('[Server] Cloudinary health check warning:', err.message);
   });
 
-  const isProduction = process.env.NODE_ENV === 'production';
+  const distPath = path.resolve(__dirname, 'dist');
+  const isRender = process.env.RENDER === 'true';
+  const hasBuiltDist = fs.existsSync(path.join(distPath, 'index.html'));
+  const isProduction = process.env.NODE_ENV === 'production' || (isRender && hasBuiltDist);
   // Parse port from CLI flags (--port <number>) or use 3000 for local dev to avoid port 8080 collision with internal proxy
   const portArgIndex = process.argv.indexOf('--port');
   let port = 3000;
   if (portArgIndex !== -1 && process.argv[portArgIndex + 1]) {
     port = parseInt(process.argv[portArgIndex + 1], 10);
-  } else if (isProduction && process.env.PORT) {
+  } else if ((isProduction || isRender) && process.env.PORT) {
     port = parseInt(process.env.PORT, 10);
   }
 
   if (!isProduction) {
     // Development mode: Mount Vite dev server middleware
+    const hmrDisabled = process.env.DISABLE_HMR === 'true';
     const { createServer } = await import('vite');
     const vite = await createServer({
       server: {
         middlewareMode: true,
-        hmr: process.env.DISABLE_HMR !== 'true',
-        watch: process.env.DISABLE_HMR === 'true' ? null : {},
+        allowedHosts: true,
+        hmr: hmrDisabled ? false : { server, path: '/__vite_hmr' },
+        watch: hmrDisabled ? null : {},
       },
       appType: 'spa',
     });
 
+    if (hmrDisabled) {
+      // Prevent @vite/client from opening a failing WebSocket to port 24678 when HMR is disabled
+      app.get('/@vite/client', (_req, res) => {
+        res.type('application/javascript').send(`
+          export function createHotContext() {
+            return {
+              data: {},
+              accept() {},
+              acceptExports() {},
+              dispose() {},
+              prune() {},
+              decline() {},
+              invalidate() {},
+              on() {},
+              off() {},
+              send() {},
+            };
+          }
+          export function updateStyle(id, content) {
+            let style = document.querySelector(\`style[data-vite-dev-id="\${id}"]\`);
+            if (!style) {
+              style = document.createElement('style');
+              style.setAttribute('data-vite-dev-id', id);
+              document.head.appendChild(style);
+            }
+            style.textContent = content;
+          }
+          export function removeStyle(id) {
+            const style = document.querySelector(\`style[data-vite-dev-id="\${id}"]\`);
+            if (style) style.remove();
+          }
+          export function injectQuery(url) { return url; }
+          export const ErrorOverlay = class {};
+        `);
+      });
+    }
+
     app.use(vite.middlewares);
   } else {
     // Production mode: Serve built static assets
-    const distPath = path.resolve(__dirname, 'dist');
     const publicPath = path.resolve(__dirname, 'public');
 
     // Robust static asset handlers supporting /assets, /public/assets, and legacy /src/assets
